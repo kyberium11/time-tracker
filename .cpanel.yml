@@ -19,7 +19,7 @@ deployment:
     - /bin/cp -R resources $DEPLOYPATH/
     - /bin/cp -R routes $DEPLOYPATH/
     - /bin/cp -R storage $DEPLOYPATH/
-    - /bin/cp -R vendor $DEPLOYPATH/
+    # DO NOT copy vendor; install on server
     
     # Copy individual files
     - /bin/cp artisan $DEPLOYPATH/
@@ -45,6 +45,9 @@ deployment:
     
     # Navigate to deployment directory
     - cd $DEPLOYPATH
+    
+    # Install PHP dependencies (Composer)
+    - if command -v composer >/dev/null 2>&1; then composer install --no-dev --optimize-autoloader --no-interaction; elif [ -x /opt/cpanel/composer/bin/composer ]; then /opt/cpanel/composer/bin/composer install --no-dev --optimize-autoloader --no-interaction; else echo "Composer not found"; fi
     
     # Laravel deployment commands (only if .env exists)
     - if [ -f ".env" ]; then
