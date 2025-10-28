@@ -1,0 +1,65 @@
+---
+deployment:
+  tasks:
+    # Set deployment path (update this to match your cPanel username)
+    - export DEPLOYPATH=/home/kyberium11/public_html
+    
+    # Create backup of current deployment
+    - if [ -d "$DEPLOYPATH" ]; then /bin/cp -r $DEPLOYPATH $DEPLOYPATH.backup.$(date +%Y%m%d_%H%M%S); fi
+    
+    # Create deployment directory if it doesn't exist
+    - /bin/mkdir -p $DEPLOYPATH
+    
+    # Copy Laravel application files
+    - /bin/cp -R app $DEPLOYPATH/
+    - /bin/cp -R bootstrap $DEPLOYPATH/
+    - /bin/cp -R config $DEPLOYPATH/
+    - /bin/cp -R database $DEPLOYPATH/
+    - /bin/cp -R public $DEPLOYPATH/
+    - /bin/cp -R resources $DEPLOYPATH/
+    - /bin/cp -R routes $DEPLOYPATH/
+    - /bin/cp -R storage $DEPLOYPATH/
+    - /bin/cp -R vendor $DEPLOYPATH/
+    
+    # Copy individual files
+    - /bin/cp artisan $DEPLOYPATH/
+    - /bin/cp composer.json $DEPLOYPATH/
+    - /bin/cp composer.lock $DEPLOYPATH/
+    - /bin/cp package.json $DEPLOYPATH/
+    - /bin/cp package-lock.json $DEPLOYPATH/
+    - /bin/cp phpunit.xml $DEPLOYPATH/
+    - /bin/cp tailwind.config.js $DEPLOYPATH/
+    - /bin/cp tsconfig.json $DEPLOYPATH/
+    - /bin/cp vite.config.js $DEPLOYPATH/
+    - /bin/cp postcss.config.js $DEPLOYPATH/
+    - /bin/cp .htaccess $DEPLOYPATH/
+    - /bin/cp env.production.example $DEPLOYPATH/.env.example
+    
+    # Set proper ownership
+    - /bin/chown -R kyberium11:kyberium11 $DEPLOYPATH
+    
+    # Set proper permissions
+    - /bin/chmod -R 755 $DEPLOYPATH
+    - /bin/chmod -R 775 $DEPLOYPATH/storage
+    - /bin/chmod -R 775 $DEPLOYPATH/bootstrap/cache
+    
+    # Navigate to deployment directory
+    - cd $DEPLOYPATH
+    
+    # Laravel deployment commands (only if .env exists)
+    - if [ -f ".env" ]; then
+        /usr/local/bin/php artisan key:generate --force;
+        /usr/local/bin/php artisan migrate --force;
+        /usr/local/bin/php artisan config:cache;
+        /usr/local/bin/php artisan route:cache;
+        /usr/local/bin/php artisan view:cache;
+      else
+        echo "Warning: .env file not found. Please create it from .env.example and configure your settings.";
+      fi
+    
+    # Final permissions check
+    - /bin/chmod -R 755 storage bootstrap/cache
+    - /bin/chmod -R 775 storage/logs
+    
+    # Create deployment log
+    - echo "Deployment completed at $(date)" > $DEPLOYPATH/deployment.log
