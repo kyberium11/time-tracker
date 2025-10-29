@@ -252,7 +252,8 @@ echo "        </div>
     </div>
     
     <script>
-        function showTab(tabName, el) {
+        // Ensure the tab switcher is available on the global scope for inline onclick handlers
+        window.showTab = function(tabName, el) {
             // Hide all tab contents
             const contents = document.querySelectorAll('.tab-content');
             contents.forEach(content => content.classList.remove('active'));
