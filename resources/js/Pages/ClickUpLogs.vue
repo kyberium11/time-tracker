@@ -17,6 +17,7 @@ interface LogItem {
 const logs = ref<LogItem[]>([]);
 const loading = ref(false);
 const webhooks = ref<any[]>([]);
+const timeEntryLogs = ref<any[]>([]);
 
 const fetchLogs = async () => {
     loading.value = true;
@@ -24,6 +25,7 @@ const fetchLogs = async () => {
         const res = await api.get('/admin/clickup/webhook-logs');
         logs.value = res.data?.logs || [];
         webhooks.value = res.data?.webhooks || [];
+        timeEntryLogs.value = res.data?.time_entry_logs || [];
     } catch (e) {
         alert('Failed to load ClickUp logs');
     } finally {
@@ -60,7 +62,7 @@ onMounted(fetchLogs);
                         </ul>
                     </div>
                 </div>
-                <div class="overflow-hidden bg-white shadow sm:rounded-lg">
+                <div class="mb-6 overflow-hidden bg-white shadow sm:rounded-lg">
                     <div class="px-4 py-5 sm:p-6 overflow-x-auto">
                         <table class="min-w-full divide-y divide-gray-200">
                             <thead class="bg-gray-50">
@@ -84,6 +86,36 @@ onMounted(fetchLogs);
                                 </tr>
                                 <tr v-if="!logs.length && !loading">
                                     <td colspan="6" class="px-6 py-6 text-center text-sm text-gray-500">No logs yet.</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Time Entry Sync Logs -->
+                <div class="overflow-hidden bg-white shadow sm:rounded-lg">
+                    <div class="px-4 py-5 sm:p-6 overflow-x-auto">
+                        <h3 class="text-md font-semibold mb-2">Time Entry Sync Logs</h3>
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Time</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">User</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Action</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Description</th>
+                                    <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Details</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-200 bg-white">
+                                <tr v-for="row in timeEntryLogs" :key="row.id">
+                                    <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-700">{{ new Date(row.created_at).toLocaleString() }}</td>
+                                    <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-700">{{ row.user?.name || row.user_id }}</td>
+                                    <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-900">{{ row.action }}</td>
+                                    <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-700">{{ row.description }}</td>
+                                    <td class="px-6 py-4 text-xs text-gray-500"><pre class="whitespace-pre-wrap">{{ JSON.stringify(row.metadata, null, 2) }}</pre></td>
+                                </tr>
+                                <tr v-if="!timeEntryLogs.length && !loading">
+                                    <td colspan="5" class="px-6 py-6 text-center text-sm text-gray-500">No time entry sync logs yet.</td>
                                 </tr>
                             </tbody>
                         </table>
