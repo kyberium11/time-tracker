@@ -299,10 +299,6 @@ class TimeEntryController extends Controller
                 'billable' => true,
                 'description' => 'Synced from Time Tracker',
             ];
-            // Only include assignee if we have one
-            if (!empty(Auth::user()->clickup_user_id)) {
-                $payload['assignee'] = (string) Auth::user()->clickup_user_id;
-            }
             $result = $clickUp->createTimeEntry($teamId, $payload);
             if (isset($result['error']) && $result['error']) {
                 // Log a user activity with error so admins can see
