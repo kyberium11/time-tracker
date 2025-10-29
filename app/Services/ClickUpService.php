@@ -42,26 +42,35 @@ class ClickUpService
         }
         $query['custom_task_ids'] = 'true';
 
-        $response = Http::withHeaders($headers)->get($base, $query);
+        try {
+            // Keep the webhook response snappy: small timeout, no retries
+            $response = Http::withHeaders($headers)
+                ->timeout(2)
+                ->get($base, $query);
 
-        if ($response->failed()) {
-            // Fallback: try without custom_task_ids
-            $fallback = Http::withHeaders($headers)->get($base);
-            if ($fallback->failed()) {
+            if ($response->failed()) {
                 Log::warning('ClickUp getTask failed', [
                     'taskId' => $taskId,
-                    'status' => $fallback->status(),
-                    'body' => $fallback->body(),
+                    'status' => $response->status(),
+                    'body' => $response->body(),
                 ]);
                 return ['__error' => [
-                    'status' => $fallback->status(),
-                    'body' => (string) $fallback->body(),
+                    'status' => $response->status(),
+                    'body' => (string) $response->body(),
                 ]];
             }
-            return $fallback->json() ?? [];
-        }
 
-        return $response->json() ?? [];
+            return $response->json() ?? [];
+        } catch (\Throwable $e) {
+            Log::warning('ClickUp getTask exception', [
+                'taskId' => $taskId,
+                'message' => $e->getMessage(),
+            ]);
+            return ['__error' => [
+                'status' => 0,
+                'body' => 'exception: ' . $e->getMessage(),
+            ]];
+        }
     }
 
     public function listTeamWebhooks(string $teamId): array
