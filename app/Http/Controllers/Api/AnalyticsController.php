@@ -225,7 +225,7 @@ class AnalyticsController extends Controller
     public function individualEntries(Request $request)
     {
         $user = Auth::user()->load('managedTeam');
-        $query = TimeEntry::with(['user', 'user.team'])
+        $query = TimeEntry::with(['user', 'user.team', 'task'])
             ->whereNotNull('clock_out');
 
         // If user is a manager, only show their team's data
@@ -245,6 +245,14 @@ class AnalyticsController extends Controller
                 ->pluck('id')
                 ->toArray();
             $query->whereIn('user_id', $userIds);
+        }
+
+        // Filter by team if provided (admin only)
+        if ($request->has('team_id') && $request->team_id && $user->role === 'admin') {
+            $teamUserIds = User::where('team_id', $request->team_id)
+                ->pluck('id')
+                ->toArray();
+            $query->whereIn('user_id', $teamUserIds);
         }
 
         // Filter by user if provided

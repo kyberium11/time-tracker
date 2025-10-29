@@ -14,13 +14,20 @@ interface TimeEntry {
     lunch_start: string | null;
     lunch_end: string | null;
     total_hours: number;
-    user?: { id: number; name: string; email: string; };
+    user?: { id: number; name: string; email: string; team?: { id: number; name: string; } };
+    task?: { id: number; name: string; clickup_id: string | null; };
 }
 
 interface User {
     id: number;
     name: string;
     email: string;
+}
+
+interface Team {
+    id: number;
+    name: string;
+    description?: string;
 }
 
 interface ActivityLog {
@@ -43,10 +50,12 @@ const overviewLoading = ref(false);
 
 // Individual Entries Tab Data
 const selectedUser = ref<any>(null);
+const selectedTeam = ref<any>(null);
 const startDate = ref('');
 const endDate = ref('');
 const statusFilter = ref('');
 const allUsers = ref<User[]>([]);
+const allTeams = ref<Team[]>([]);
 const entries = ref<TimeEntry[]>([]);
 const entriesLoading = ref(false);
 
@@ -69,6 +78,7 @@ onMounted(() => {
     
     loadOverviewData();
     loadUsers();
+    loadTeams();
     loadEntries();
     loadActivityLogs();
     
@@ -104,6 +114,15 @@ const loadUsers = async () => {
     }
 };
 
+const loadTeams = async () => {
+    try {
+        const response = await api.get('/teams');
+        allTeams.value = response.data.data || response.data;
+    } catch (error) {
+        console.error('Error loading teams:', error);
+    }
+};
+
 const loadEntries = async () => {
     entriesLoading.value = true;
     try {
@@ -113,6 +132,9 @@ const loadEntries = async () => {
         };
         if (selectedUser.value) {
             params.user_id = selectedUser.value;
+        }
+        if (selectedTeam.value) {
+            params.team_id = selectedTeam.value;
         }
         if (statusFilter.value) {
             params.status = statusFilter.value;
@@ -434,7 +456,14 @@ const exportPdf = () => {
                                 </button>
                             </div>
                         </div>
-                        <div class="grid gap-4 sm:grid-cols-4">
+                        <div class="grid gap-4 sm:grid-cols-5">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Team</label>
+                                <select v-model="selectedTeam" @change="loadEntries" class="w-full rounded-md border-gray-300 shadow-sm">
+                                    <option :value="null">All Teams</option>
+                                    <option v-for="team in allTeams" :key="team.id" :value="team.id">{{ team.name }}</option>
+                                </select>
+                            </div>
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-1">User</label>
                                 <select v-model="selectedUser" @change="loadEntries" class="w-full rounded-md border-gray-300 shadow-sm">
@@ -470,6 +499,8 @@ const exportPdf = () => {
                                 <thead class="bg-gray-50">
                                     <tr>
                                         <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Employee</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Team</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Task</th>
                                         <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Date</th>
                                         <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Clock In</th>
                                         <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Clock Out</th>
@@ -479,13 +510,15 @@ const exportPdf = () => {
                                 <tbody class="divide-y divide-gray-200">
                                     <tr v-for="entry in entries" :key="entry.id">
                                         <td class="px-4 py-4 text-sm text-gray-900">{{ entry.user?.name }}</td>
+                                        <td class="px-4 py-4 text-sm text-gray-500">{{ entry.user?.team?.name || '--' }}</td>
+                                        <td class="px-4 py-4 text-sm text-gray-500">{{ entry.task?.name || '--' }}</td>
                                         <td class="px-4 py-4 text-sm text-gray-500">{{ formatDate(entry.date) }}</td>
                                         <td class="px-4 py-4 text-sm text-gray-500">{{ formatTime(entry.clock_in) }}</td>
                                         <td class="px-4 py-4 text-sm text-gray-500">{{ formatTime(entry.clock_out) }}</td>
                                         <td class="px-4 py-4 text-sm font-semibold text-gray-900">{{ entry.total_hours }}h</td>
                                     </tr>
                                     <tr v-if="entries.length === 0 && !entriesLoading">
-                                        <td colspan="5" class="px-4 py-4 text-center text-sm text-gray-500">No entries found</td>
+                                        <td colspan="7" class="px-4 py-4 text-center text-sm text-gray-500">No entries found</td>
                                     </tr>
                                 </tbody>
                             </table>
