@@ -61,18 +61,21 @@ class ClickUpWebhookController extends Controller
             return response()->json(['message' => 'No task id'], 200);
         }
 
-        // Fetch latest task details from ClickUp API (to have full context)
+        // Be efficient: make at most one ClickUp API call per webhook.
+        // For deletions, we can't fetch the task reliably; just log and exit.
+        if ($event === 'taskDeleted') {
+            ClickUpWebhookLog::create([
+                'event' => $event,
+                'task_id' => (string) $taskId,
+                'status_code' => 200,
+                'message' => 'Task deleted event received (skipping fetch)',
+                'payload' => $payload,
+            ]);
+            return response()->json(['message' => 'ok (deleted)'], 200);
+        }
+
+        // Fetch latest task details from ClickUp API once (no retries)
         $task = $this->clickUp->getTask($taskId);
-        // Retry shortly after create; ClickUp may not have the task immediately consistent
-        if (empty($task) || isset($task['__error'])) {
-            usleep(200 * 1000); // 200ms
-            $task = $this->clickUp->getTask($taskId);
-        }
-        // If still missing title or url, try one more longer retry
-        if ((string) data_get($task, 'name') === '' || (string) data_get($task, 'url') === '') {
-            usleep(800 * 1000); // +800ms
-            $task = $this->clickUp->getTask($taskId);
-        }
         if (empty($task)) {
             ClickUpWebhookLog::create([
                 'event' => $event,
