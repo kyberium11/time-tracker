@@ -3,6 +3,19 @@
 echo '<div id="users" class="tab-content">';
 echo '<h2>👥 User Management</h2>';
 
+// Bootstrap helper to load Laravel once for this request
+if (!function_exists('bootstrapLaravel')) {
+    function bootstrapLaravel(string $workingDir): void {
+        static $booted = false;
+        if ($booted) return;
+        require_once $workingDir . '/vendor/autoload.php';
+        $app = require_once $workingDir . '/bootstrap/app.php';
+        $kernel = $app->make(\Illuminate\Contracts\Console\Kernel::class);
+        $kernel->bootstrap();
+        $booted = true;
+    }
+}
+
 // Handle form submission
 if ($_POST) {
     echo '<div class="section">';
@@ -28,9 +41,8 @@ if ($_POST) {
             echo '<div class="alert alert-warning">⚠ Please install Composer dependencies first using the Laravel tab</div>';
         } else {
             try {
-                // Include Laravel bootstrap
-                require_once $workingDir . '/vendor/autoload.php';
-                $app = require_once $workingDir . '/bootstrap/app.php';
+                // Bootstrap Laravel so Eloquent and facades work
+                bootstrapLaravel($workingDir);
                 
                 // Create user
                 $user = new \App\Models\User();
@@ -66,8 +78,7 @@ if ($_POST) {
             echo '<div class="alert alert-warning">⚠ Please install Composer dependencies first using the Laravel tab</div>';
         } else {
             try {
-                require_once $workingDir . '/vendor/autoload.php';
-                $app = require_once $workingDir . '/bootstrap/app.php';
+                bootstrapLaravel($workingDir);
                 
                 $user = new \App\Models\User();
                 $user->name = $name;
@@ -95,8 +106,7 @@ if ($_POST) {
             echo '<div class="alert alert-warning">⚠ Please install Composer dependencies first using the Laravel tab</div>';
         } else {
             try {
-                require_once $workingDir . '/vendor/autoload.php';
-                $app = require_once $workingDir . '/bootstrap/app.php';
+                bootstrapLaravel($workingDir);
                 
                 $users = \App\Models\User::all();
                 
@@ -139,8 +149,7 @@ if ($_POST) {
 $teams = [];
 if (file_exists(dirname(__DIR__) . '/vendor/autoload.php') && is_dir(dirname(__DIR__) . '/vendor')) {
     try {
-        require_once dirname(__DIR__) . '/vendor/autoload.php';
-        $app = require_once dirname(__DIR__) . '/bootstrap/app.php';
+        bootstrapLaravel(dirname(__DIR__));
         $teams = \App\Models\Team::all();
     } catch (Exception $e) {
         // Teams not available
