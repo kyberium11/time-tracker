@@ -107,11 +107,17 @@ echo '<div class="section">';
 echo '<h3>Laravel Application Test</h3>';
 
 if (file_exists('../bootstrap/app.php')) {
-    try {
-        require_once '../bootstrap/app.php';
-        echo '<p><span class="status-indicator status-success"></span><strong>Laravel Bootstrap:</strong> Loads successfully</p>';
-    } catch (Exception $e) {
-        echo '<p><span class="status-indicator status-error"></span><strong>Laravel Bootstrap:</strong> Failed - ' . $e->getMessage() . '</p>';
+    // Check if vendor directory exists first
+    if (!is_dir('../vendor') || !file_exists('../vendor/autoload.php')) {
+        echo '<p><span class="status-indicator status-error"></span><strong>Laravel Bootstrap:</strong> Cannot test - Composer dependencies not installed</p>';
+        echo '<p class="warning">⚠ Please install Composer dependencies first using the Laravel tab</p>';
+    } else {
+        try {
+            require_once '../bootstrap/app.php';
+            echo '<p><span class="status-indicator status-success"></span><strong>Laravel Bootstrap:</strong> Loads successfully</p>';
+        } catch (Exception $e) {
+            echo '<p><span class="status-indicator status-error"></span><strong>Laravel Bootstrap:</strong> Failed - ' . $e->getMessage() . '</p>';
+        }
     }
 } else {
     echo '<p><span class="status-indicator status-error"></span><strong>Laravel Bootstrap:</strong> File missing</p>';

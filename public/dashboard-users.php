@@ -22,6 +22,11 @@ if ($_POST) {
             echo '<div class="alert alert-error">✗ All fields are required</div>';
         } else {
             // Create user using Laravel's User model
+        // Check if Composer dependencies are installed
+        if (!is_dir($workingDir . '/vendor') || !file_exists($workingDir . '/vendor/autoload.php')) {
+            echo '<div class="alert alert-error">✗ User creation failed: Composer dependencies not installed</div>';
+            echo '<div class="alert alert-warning">⚠ Please install Composer dependencies first using the Laravel tab</div>';
+        } else {
             try {
                 // Include Laravel bootstrap
                 require_once $workingDir . '/vendor/autoload.php';
@@ -47,6 +52,7 @@ if ($_POST) {
                 echo '<div class="alert alert-error">✗ User creation failed: ' . $e->getMessage() . '</div>';
             }
         }
+        }
     }
     
     if (isset($_POST['create_admin'])) {
@@ -54,63 +60,75 @@ if ($_POST) {
         $email = $_POST['admin_email'] ?? 'admin@example.com';
         $password = $_POST['admin_password'] ?? 'password123';
         
-        try {
-            require_once $workingDir . '/vendor/autoload.php';
-            $app = require_once $workingDir . '/bootstrap/app.php';
-            
-            $user = new \App\Models\User();
-            $user->name = $name;
-            $user->email = $email;
-            $user->password = \Illuminate\Support\Facades\Hash::make($password);
-            $user->role = 'admin';
-            $user->email_verified_at = now();
-            $user->save();
-            
-            echo '<div class="alert alert-success">✓ Admin user created successfully!</div>';
-            echo '<div class="alert alert-info">Email: ' . $user->email . '</div>';
-            echo '<div class="alert alert-info">Password: ' . $password . '</div>';
-            echo '<div class="alert alert-warning">⚠ Please change the password after first login!</div>';
-            
-        } catch (Exception $e) {
-            echo '<div class="alert alert-error">✗ Admin user creation failed: ' . $e->getMessage() . '</div>';
+        // Check if Composer dependencies are installed
+        if (!is_dir($workingDir . '/vendor') || !file_exists($workingDir . '/vendor/autoload.php')) {
+            echo '<div class="alert alert-error">✗ Admin user creation failed: Composer dependencies not installed</div>';
+            echo '<div class="alert alert-warning">⚠ Please install Composer dependencies first using the Laravel tab</div>';
+        } else {
+            try {
+                require_once $workingDir . '/vendor/autoload.php';
+                $app = require_once $workingDir . '/bootstrap/app.php';
+                
+                $user = new \App\Models\User();
+                $user->name = $name;
+                $user->email = $email;
+                $user->password = \Illuminate\Support\Facades\Hash::make($password);
+                $user->role = 'admin';
+                $user->email_verified_at = now();
+                $user->save();
+                
+                echo '<div class="alert alert-success">✓ Admin user created successfully!</div>';
+                echo '<div class="alert alert-info">Email: ' . $user->email . '</div>';
+                echo '<div class="alert alert-info">Password: ' . $password . '</div>';
+                echo '<div class="alert alert-warning">⚠ Please change the password after first login!</div>';
+                
+            } catch (Exception $e) {
+                echo '<div class="alert alert-error">✗ Admin user creation failed: ' . $e->getMessage() . '</div>';
+            }
         }
     }
     
     if (isset($_POST['list_users'])) {
-        try {
-            require_once $workingDir . '/vendor/autoload.php';
-            $app = require_once $workingDir . '/bootstrap/app.php';
-            
-            $users = \App\Models\User::all();
-            
-            if ($users->count() > 0) {
-                echo '<h4>Existing Users</h4>';
-                echo '<table style="width: 100%; border-collapse: collapse; margin: 20px 0;">';
-                echo '<tr style="background: #f8f9fa;">';
-                echo '<th style="border: 1px solid #ddd; padding: 10px;">ID</th>';
-                echo '<th style="border: 1px solid #ddd; padding: 10px;">Name</th>';
-                echo '<th style="border: 1px solid #ddd; padding: 10px;">Email</th>';
-                echo '<th style="border: 1px solid #ddd; padding: 10px;">Role</th>';
-                echo '<th style="border: 1px solid #ddd; padding: 10px;">Created</th>';
-                echo '</tr>';
+        // Check if Composer dependencies are installed
+        if (!is_dir($workingDir . '/vendor') || !file_exists($workingDir . '/vendor/autoload.php')) {
+            echo '<div class="alert alert-error">✗ Failed to list users: Composer dependencies not installed</div>';
+            echo '<div class="alert alert-warning">⚠ Please install Composer dependencies first using the Laravel tab</div>';
+        } else {
+            try {
+                require_once $workingDir . '/vendor/autoload.php';
+                $app = require_once $workingDir . '/bootstrap/app.php';
                 
-                foreach ($users as $user) {
-                    echo '<tr>';
-                    echo '<td style="border: 1px solid #ddd; padding: 10px;">' . $user->id . '</td>';
-                    echo '<td style="border: 1px solid #ddd; padding: 10px;">' . $user->name . '</td>';
-                    echo '<td style="border: 1px solid #ddd; padding: 10px;">' . $user->email . '</td>';
-                    echo '<td style="border: 1px solid #ddd; padding: 10px;">' . $user->role . '</td>';
-                    echo '<td style="border: 1px solid #ddd; padding: 10px;">' . $user->created_at->format('Y-m-d H:i') . '</td>';
+                $users = \App\Models\User::all();
+                
+                if ($users->count() > 0) {
+                    echo '<h4>Existing Users</h4>';
+                    echo '<table style="width: 100%; border-collapse: collapse; margin: 20px 0;">';
+                    echo '<tr style="background: #f8f9fa;">';
+                    echo '<th style="border: 1px solid #ddd; padding: 10px;">ID</th>';
+                    echo '<th style="border: 1px solid #ddd; padding: 10px;">Name</th>';
+                    echo '<th style="border: 1px solid #ddd; padding: 10px;">Email</th>';
+                    echo '<th style="border: 1px solid #ddd; padding: 10px;">Role</th>';
+                    echo '<th style="border: 1px solid #ddd; padding: 10px;">Created</th>';
                     echo '</tr>';
+                    
+                    foreach ($users as $user) {
+                        echo '<tr>';
+                        echo '<td style="border: 1px solid #ddd; padding: 10px;">' . $user->id . '</td>';
+                        echo '<td style="border: 1px solid #ddd; padding: 10px;">' . $user->name . '</td>';
+                        echo '<td style="border: 1px solid #ddd; padding: 10px;">' . $user->email . '</td>';
+                        echo '<td style="border: 1px solid #ddd; padding: 10px;">' . $user->role . '</td>';
+                        echo '<td style="border: 1px solid #ddd; padding: 10px;">' . $user->created_at->format('Y-m-d H:i') . '</td>';
+                        echo '</tr>';
+                    }
+                    
+                    echo '</table>';
+                } else {
+                    echo '<div class="alert alert-info">No users found in the database.</div>';
                 }
                 
-                echo '</table>';
-            } else {
-                echo '<div class="alert alert-info">No users found in the database.</div>';
+            } catch (Exception $e) {
+                echo '<div class="alert alert-error">✗ Failed to list users: ' . $e->getMessage() . '</div>';
             }
-            
-        } catch (Exception $e) {
-            echo '<div class="alert alert-error">✗ Failed to list users: ' . $e->getMessage() . '</div>';
         }
     }
     
@@ -119,7 +137,7 @@ if ($_POST) {
 
 // Get teams for dropdown
 $teams = [];
-if (file_exists(dirname(__DIR__) . '/vendor/autoload.php')) {
+if (file_exists(dirname(__DIR__) . '/vendor/autoload.php') && is_dir(dirname(__DIR__) . '/vendor')) {
     try {
         require_once dirname(__DIR__) . '/vendor/autoload.php';
         $app = require_once dirname(__DIR__) . '/bootstrap/app.php';
