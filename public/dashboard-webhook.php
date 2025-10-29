@@ -137,15 +137,20 @@ if ($_POST) {
         } else {
             try {
                 $service = app(\App\Services\ClickUpService::class);
-                $success = $service->deleteWebhook($webhookTeamId, $webhookId);
+                $result = $service->deleteWebhook($webhookTeamId, $webhookId);
                 
-                if ($success) {
-                    echo '<div class="alert alert-success">✓ Webhook deleted successfully!</div>';
-                } else {
+                if (isset($result['error']) && $result['error']) {
                     echo '<div class="alert alert-error">✗ Failed to delete webhook</div>';
+                    echo '<div class="alert alert-info">Error: ' . htmlspecialchars($result['message'] ?? 'Unknown error') . '</div>';
+                    if (isset($result['status'])) {
+                        echo '<div class="alert alert-info">HTTP Status: ' . $result['status'] . '</div>';
+                    }
+                } else {
+                    echo '<div class="alert alert-success">✓ Webhook deleted successfully!</div>';
                 }
             } catch (Exception $e) {
                 echo '<div class="alert alert-error">✗ Error: ' . htmlspecialchars($e->getMessage()) . '</div>';
+                echo '<div class="alert alert-info">Exception Details: ' . htmlspecialchars($e->getTraceAsString()) . '</div>';
             }
         }
     }

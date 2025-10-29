@@ -128,24 +128,35 @@ class ClickUpService
         return $response->json() ?? [];
     }
 
-    public function deleteWebhook(string $teamId, string $webhookId): bool
+    public function deleteWebhook(string $teamId, string $webhookId): array
     {
+        $url = 'https://api.clickup.com/api/v2/team/' . $teamId . '/webhook/' . $webhookId;
+        
         $response = Http::withHeaders([
                 'Authorization' => (string) $this->apiToken,
                 'Accept' => 'application/json',
-            ])->delete('https://api.clickup.com/api/v2/team/' . $teamId . '/webhook/' . $webhookId);
+            ])->delete($url);
 
-        if ($response->failed()) {
+        // ClickUp DELETE endpoints typically return 200 on success
+        $statusCode = $response->status();
+        $body = $response->body();
+        
+        if ($response->failed() || ($statusCode !== 200 && $statusCode !== 204)) {
             Log::warning('ClickUp delete webhook failed', [
                 'teamId' => $teamId,
                 'webhookId' => $webhookId,
-                'status' => $response->status(),
-                'body' => $response->body(),
+                'url' => $url,
+                'status' => $statusCode,
+                'body' => $body,
             ]);
-            return false;
+            return [
+                'error' => true,
+                'message' => $body ?: 'HTTP ' . $statusCode,
+                'status' => $statusCode,
+            ];
         }
 
-        return true;
+        return ['error' => false, 'success' => true, 'status' => $statusCode];
     }
 
     public function createTimeEntry(string $teamId, array $payload): array
