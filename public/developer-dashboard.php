@@ -65,9 +65,6 @@ echo "<!DOCTYPE html>
             min-height: 500px;
         }
         .tab-content { 
-            display: none; 
-        }
-        .tab-content.active { 
             display: block; 
         }
         .success { color: #27ae60; font-weight: bold; }
