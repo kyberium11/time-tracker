@@ -200,81 +200,59 @@ echo "<!DOCTYPE html>
             <p>Laravel Time Tracker - Complete Development & Debugging Suite</p>
         </div>
         
+        <?php $activeTab = isset($_GET['tab']) ? $_GET['tab'] : 'overview'; ?>
         <div class='nav'>
-            <button class='nav-item active' onclick='showTab(\"overview\", this)'>📊 Overview</button>
-            <button class='nav-item' onclick='showTab(\"debug\", this)'>🔍 Debug</button>
-            <button class='nav-item' onclick='showTab(\"setup\", this)'>⚙️ Setup</button>
-            <button class='nav-item' onclick='showTab(\"laravel\", this)'>🔧 Laravel</button>
-            <button class='nav-item' onclick='showTab(\"csrf\", this)'>🛡️ CSRF Fix</button>
-            <button class='nav-item' onclick='showTab(\"users\", this)'>👥 Users</button>
+            <a class='nav-item <?php echo $activeTab === "overview" ? "active" : ""; ?>' href='?tab=overview'>📊 Overview</a>
+            <a class='nav-item <?php echo $activeTab === "debug" ? "active" : ""; ?>' href='?tab=debug'>🔍 Debug</a>
+            <a class='nav-item <?php echo $activeTab === "setup" ? "active" : ""; ?>' href='?tab=setup'>⚙️ Setup</a>
+            <a class='nav-item <?php echo $activeTab === "laravel" ? "active" : ""; ?>' href='?tab=laravel'>🔧 Laravel</a>
+            <a class='nav-item <?php echo $activeTab === "csrf" ? "active" : ""; ?>' href='?tab=csrf'>🛡️ CSRF Fix</a>
+            <a class='nav-item <?php echo $activeTab === "users" ? "active" : ""; ?>' href='?tab=users'>👥 Users</a>
         </div>
         
         <div class='content'>";
 
-// Include all functionality
-if (file_exists('dashboard-overview.php')) {
-    include 'dashboard-overview.php';
-} else {
-    echo '<div id="overview" class="tab-content active"><h2>Overview module not found</h2></div>';
-}
-
-if (file_exists('dashboard-debug.php')) {
-    include 'dashboard-debug.php';
-} else {
-    echo '<div id="debug" class="tab-content"><h2>Debug module not found</h2></div>';
-}
-
-if (file_exists('dashboard-setup.php')) {
-    include 'dashboard-setup.php';
-} else {
-    echo '<div id="setup" class="tab-content"><h2>Setup module not found</h2></div>';
-}
-
-if (file_exists('dashboard-laravel.php')) {
-    include 'dashboard-laravel.php';
-} else {
-    echo '<div id="laravel" class="tab-content"><h2>Laravel module not found</h2></div>';
-}
-
-if (file_exists('dashboard-csrf.php')) {
-    include 'dashboard-csrf.php';
-} else {
-    echo '<div id="csrf" class="tab-content"><h2>CSRF module not found</h2></div>';
-}
-
-if (file_exists('dashboard-users.php')) {
-    include 'dashboard-users.php';
-} else {
-    echo '<div id="users" class="tab-content"><h2>Users module not found</h2></div>';
+// Load only the requested section server-side (no JS tabs)
+switch ($activeTab) {
+    case 'debug':
+        if (file_exists('dashboard-debug.php')) { include 'dashboard-debug.php'; }
+        else { echo '<div id="debug" class="tab-content active"><h2>Debug module not found</h2></div>'; }
+        break;
+    case 'setup':
+        if (file_exists('dashboard-setup.php')) { include 'dashboard-setup.php'; }
+        else { echo '<div id="setup" class="tab-content active"><h2>Setup module not found</h2></div>'; }
+        break;
+    case 'laravel':
+        if (file_exists('dashboard-laravel.php')) { include 'dashboard-laravel.php'; }
+        else { echo '<div id="laravel" class="tab-content active"><h2>Laravel module not found</h2></div>'; }
+        break;
+    case 'csrf':
+        if (file_exists('dashboard-csrf.php')) { include 'dashboard-csrf.php'; }
+        else { echo '<div id="csrf" class="tab-content active"><h2>CSRF module not found</h2></div>'; }
+        break;
+    case 'users':
+        if (file_exists('dashboard-users.php')) { include 'dashboard-users.php'; }
+        else { echo '<div id="users" class="tab-content active"><h2>Users module not found</h2></div>'; }
+        break;
+    case 'overview':
+    default:
+        if (file_exists('dashboard-overview.php')) { include 'dashboard-overview.php'; }
+        else { echo '<div id="overview" class="tab-content active"><h2>Overview module not found</h2></div>'; }
+        break;
 }
 
 echo "        </div>
     </div>
     
     <script>
-        // Ensure the tab switcher is available on the global scope for inline onclick handlers
-        window.showTab = function(tabName, el) {
-            // Hide all tab contents
-            const contents = document.querySelectorAll('.tab-content');
-            contents.forEach(content => content.classList.remove('active'));
-            
-            // Remove active class from all nav items
-            const navItems = document.querySelectorAll('.nav-item');
-            navItems.forEach(item => item.classList.remove('active'));
-            
-            // Show selected tab content
-            document.getElementById(tabName).classList.add('active');
-            
-            // Add active class to clicked nav item
-            if (el) { el.classList.add('active'); }
-        }
-        
-        // Auto-refresh status every 30 seconds
-        setInterval(function() {
-            if (document.getElementById('overview').classList.contains('active')) {
-                location.reload();
+        // Auto-refresh overview every 30 seconds when on the overview tab
+        (function() {
+            var params = new URLSearchParams(window.location.search);
+            var tab = params.get('tab') || 'overview';
+            if (tab === 'overview') {
+                setInterval(function() { location.reload(); }, 30000);
             }
-        }, 30000);
+        })();
     </script>
 </body>
 </html>";
