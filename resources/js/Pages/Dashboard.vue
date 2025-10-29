@@ -422,16 +422,18 @@ const play = async (taskId: number) => {
     if (isOnBreak.value) {
         await breakOut();
     }
-    // If already clocked in, switch task by clocking out then in on new task
-    if (isClockedIn.value) {
-        if (runningTaskId.value && runningTaskId.value !== taskId) {
-            // Stop current task instead of timing out whole day
-            try { await api.post('/tasks/stop'); } catch (e) {}
-        }
+    // If another task is running, stop it
+    if (runningTaskId.value && runningTaskId.value !== taskId) {
+        try { await api.post('/tasks/stop'); } catch (e) {}
     }
-    await clockIn(taskId);
-    runningTaskId.value = taskId;
-    await fetchTodayTaskEntries();
+    // Start the selected task WITHOUT altering the day clock-in
+    try {
+        await api.post('/tasks/start', { task_id: taskId });
+        runningTaskId.value = taskId;
+        await fetchTodayTaskEntries();
+    } catch (e: any) {
+        alert(e?.response?.data?.message || 'Failed to start task');
+    }
 };
 
 const pause = async () => {
