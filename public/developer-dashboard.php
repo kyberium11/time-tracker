@@ -212,12 +212,41 @@ echo "<!DOCTYPE html>
         <div class='content'>";
 
 // Include all functionality
-include 'dashboard-overview.php';
-include 'dashboard-debug.php';
-include 'dashboard-setup.php';
-include 'dashboard-laravel.php';
-include 'dashboard-csrf.php';
-include 'dashboard-users.php';
+if (file_exists('dashboard-overview.php')) {
+    include 'dashboard-overview.php';
+} else {
+    echo '<div id="overview" class="tab-content active"><h2>Overview module not found</h2></div>';
+}
+
+if (file_exists('dashboard-debug.php')) {
+    include 'dashboard-debug.php';
+} else {
+    echo '<div id="debug" class="tab-content"><h2>Debug module not found</h2></div>';
+}
+
+if (file_exists('dashboard-setup.php')) {
+    include 'dashboard-setup.php';
+} else {
+    echo '<div id="setup" class="tab-content"><h2>Setup module not found</h2></div>';
+}
+
+if (file_exists('dashboard-laravel.php')) {
+    include 'dashboard-laravel.php';
+} else {
+    echo '<div id="laravel" class="tab-content"><h2>Laravel module not found</h2></div>';
+}
+
+if (file_exists('dashboard-csrf.php')) {
+    include 'dashboard-csrf.php';
+} else {
+    echo '<div id="csrf" class="tab-content"><h2>CSRF module not found</h2></div>';
+}
+
+if (file_exists('dashboard-users.php')) {
+    include 'dashboard-users.php';
+} else {
+    echo '<div id="users" class="tab-content"><h2>Users module not found</h2></div>';
+}
 
 echo "        </div>
     </div>
@@ -248,14 +277,4 @@ echo "        </div>
     </script>
 </body>
 </html>";
-
-// Include all dashboard modules
-function include($file) {
-    $filePath = __DIR__ . '/' . $file;
-    if (file_exists($filePath)) {
-        include $filePath;
-    } else {
-        echo "<!-- $file not found -->";
-    }
-}
 ?>
