@@ -201,12 +201,12 @@ echo "<!DOCTYPE html>
         </div>
         
         <div class='nav'>
-            <button class='nav-item active' onclick='showTab(\"overview\")'>📊 Overview</button>
-            <button class='nav-item' onclick='showTab(\"debug\")'>🔍 Debug</button>
-            <button class='nav-item' onclick='showTab(\"setup\")'>⚙️ Setup</button>
-            <button class='nav-item' onclick='showTab(\"laravel\")'>🔧 Laravel</button>
-            <button class='nav-item' onclick='showTab(\"csrf\")'>🛡️ CSRF Fix</button>
-            <button class='nav-item' onclick='showTab(\"users\")'>👥 Users</button>
+            <button class='nav-item active' onclick='showTab(\"overview\", this)'>📊 Overview</button>
+            <button class='nav-item' onclick='showTab(\"debug\", this)'>🔍 Debug</button>
+            <button class='nav-item' onclick='showTab(\"setup\", this)'>⚙️ Setup</button>
+            <button class='nav-item' onclick='showTab(\"laravel\", this)'>🔧 Laravel</button>
+            <button class='nav-item' onclick='showTab(\"csrf\", this)'>🛡️ CSRF Fix</button>
+            <button class='nav-item' onclick='showTab(\"users\", this)'>👥 Users</button>
         </div>
         
         <div class='content'>";
@@ -252,7 +252,7 @@ echo "        </div>
     </div>
     
     <script>
-        function showTab(tabName) {
+        function showTab(tabName, el) {
             // Hide all tab contents
             const contents = document.querySelectorAll('.tab-content');
             contents.forEach(content => content.classList.remove('active'));
@@ -265,7 +265,7 @@ echo "        </div>
             document.getElementById(tabName).classList.add('active');
             
             // Add active class to clicked nav item
-            event.target.classList.add('active');
+            if (el) { el.classList.add('active'); }
         }
         
         // Auto-refresh status every 30 seconds
