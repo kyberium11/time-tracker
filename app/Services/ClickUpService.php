@@ -78,6 +78,76 @@ class ClickUpService
         return $response->json()['webhooks'] ?? [];
     }
 
+    public function createWebhook(string $teamId, string $endpoint, array $events = null, string $status = 'active'): array
+    {
+        $events = $events ?? ['taskCreated', 'taskUpdated', 'taskDeleted', 'taskAssigneeUpdated'];
+        
+        $body = [
+            'endpoint' => $endpoint,
+            'events' => $events,
+            'status' => $status,
+        ];
+
+        $response = Http::asJson()
+            ->withHeaders([
+                'Authorization' => (string) $this->apiToken,
+                'Accept' => 'application/json',
+            ])->post('https://api.clickup.com/api/v2/team/' . $teamId . '/webhook', $body);
+
+        if ($response->failed()) {
+            Log::warning('ClickUp create webhook failed', [
+                'teamId' => $teamId,
+                'endpoint' => $endpoint,
+                'status' => $response->status(),
+                'body' => $response->body(),
+            ]);
+            return ['error' => true, 'message' => $response->body(), 'status' => $response->status()];
+        }
+
+        return $response->json() ?? [];
+    }
+
+    public function updateWebhook(string $teamId, string $webhookId, array $data): array
+    {
+        $response = Http::asJson()
+            ->withHeaders([
+                'Authorization' => (string) $this->apiToken,
+                'Accept' => 'application/json',
+            ])->put('https://api.clickup.com/api/v2/team/' . $teamId . '/webhook/' . $webhookId, $data);
+
+        if ($response->failed()) {
+            Log::warning('ClickUp update webhook failed', [
+                'teamId' => $teamId,
+                'webhookId' => $webhookId,
+                'status' => $response->status(),
+                'body' => $response->body(),
+            ]);
+            return ['error' => true, 'message' => $response->body(), 'status' => $response->status()];
+        }
+
+        return $response->json() ?? [];
+    }
+
+    public function deleteWebhook(string $teamId, string $webhookId): bool
+    {
+        $response = Http::withHeaders([
+                'Authorization' => (string) $this->apiToken,
+                'Accept' => 'application/json',
+            ])->delete('https://api.clickup.com/api/v2/team/' . $teamId . '/webhook/' . $webhookId);
+
+        if ($response->failed()) {
+            Log::warning('ClickUp delete webhook failed', [
+                'teamId' => $teamId,
+                'webhookId' => $webhookId,
+                'status' => $response->status(),
+                'body' => $response->body(),
+            ]);
+            return false;
+        }
+
+        return true;
+    }
+
     public function createTimeEntry(string $teamId, array $payload): array
     {
         $response = Http::withHeaders([
