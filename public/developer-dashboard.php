@@ -199,18 +199,26 @@ echo "<!DOCTYPE html>
             <h1>🚀 Developer Dashboard</h1>
             <p>Laravel Time Tracker - Complete Development & Debugging Suite</p>
         </div>
+        ";
         
-        <?php $activeTab = isset($_GET['tab']) ? $_GET['tab'] : 'overview'; ?>
-        <div class='nav'>
-            <a class='nav-item <?php echo $activeTab === "overview" ? "active" : ""; ?>' href='?tab=overview'>📊 Overview</a>
-            <a class='nav-item <?php echo $activeTab === "debug" ? "active" : ""; ?>' href='?tab=debug'>🔍 Debug</a>
-            <a class='nav-item <?php echo $activeTab === "setup" ? "active" : ""; ?>' href='?tab=setup'>⚙️ Setup</a>
-            <a class='nav-item <?php echo $activeTab === "laravel" ? "active" : ""; ?>' href='?tab=laravel'>🔧 Laravel</a>
-            <a class='nav-item <?php echo $activeTab === "csrf" ? "active" : ""; ?>' href='?tab=csrf'>🛡️ CSRF Fix</a>
-            <a class='nav-item <?php echo $activeTab === "users" ? "active" : ""; ?>' href='?tab=users'>👥 Users</a>
-        </div>
+        $activeTab = isset($_GET['tab']) ? $_GET['tab'] : 'overview';
+        $clsOverview = $activeTab === 'overview' ? 'active' : '';
+        $clsDebug = $activeTab === 'debug' ? 'active' : '';
+        $clsSetup = $activeTab === 'setup' ? 'active' : '';
+        $clsLaravel = $activeTab === 'laravel' ? 'active' : '';
+        $clsCsrf = $activeTab === 'csrf' ? 'active' : '';
+        $clsUsers = $activeTab === 'users' ? 'active' : '';
         
-        <div class='content'>";
+        echo "<div class='nav'>
+            <a class='nav-item $clsOverview' href='?tab=overview'>📊 Overview</a>
+            <a class='nav-item $clsDebug' href='?tab=debug'>🔍 Debug</a>
+            <a class='nav-item $clsSetup' href='?tab=setup'>⚙️ Setup</a>
+            <a class='nav-item $clsLaravel' href='?tab=laravel'>🔧 Laravel</a>
+            <a class='nav-item $clsCsrf' href='?tab=csrf'>🛡️ CSRF Fix</a>
+            <a class='nav-item $clsUsers' href='?tab=users'>👥 Users</a>
+        </div>";
+        
+        echo "        <div class='content'>";
 
 // Load only the requested section server-side (no JS tabs)
 switch ($activeTab) {
