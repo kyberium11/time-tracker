@@ -288,15 +288,35 @@ class TimeEntryController extends Controller
         $teamId = env('CLICKUP_TEAM_ID');
         if ($teamId && $open->task && $open->task->clickup_task_id) {
             $durationMs = Carbon::parse($open->clock_out)->diffInMilliseconds(Carbon::parse($open->clock_in));
+            if ($durationMs <= 0) {
+                $durationMs = 1000; // enforce minimum 1s
+            }
             $payload = [
-                'tid' => (string) $open->task->clickup_task_id, // task id in ClickUp
+                'tid' => (string) $open->task->clickup_task_id, // some docs reference 'tid'
+                'task_id' => (string) $open->task->clickup_task_id, // also send as 'task_id' for compatibility
                 'start' => Carbon::parse($open->clock_in)->getTimestampMs(),
                 'duration' => $durationMs,
                 'billable' => true,
-                'assignee' => (string) (Auth::user()->clickup_user_id ?? ''),
                 'description' => 'Synced from Time Tracker',
             ];
-            $clickUp->createTimeEntry($teamId, $payload);
+            // Only include assignee if we have one
+            if (!empty(Auth::user()->clickup_user_id)) {
+                $payload['assignee'] = (string) Auth::user()->clickup_user_id;
+            }
+            $result = $clickUp->createTimeEntry($teamId, $payload);
+            if (isset($result['error']) && $result['error']) {
+                // Log a user activity with error so admins can see
+                $this->logActivity('clickup_time_entry_error', 'ClickUp time entry failed', [
+                    'status' => $result['status'] ?? null,
+                    'body' => $result['body'] ?? null,
+                    'payload' => $payload,
+                ]);
+            } else {
+                $this->logActivity('clickup_time_entry_synced', 'ClickUp time entry created', [
+                    'payload' => $payload,
+                    'response' => $result,
+                ]);
+            }
         }
 
         return response()->json($open);

@@ -194,22 +194,40 @@ class ClickUpService
 
     public function createTimeEntry(string $teamId, array $payload): array
     {
-        $response = Http::withHeaders([
-                'Authorization' => (string) $this->apiToken,
-                'Content-Type' => 'application/json',
-            ])->post('https://api.clickup.com/api/v2/team/' . $teamId . '/time_entries', $payload);
+        try {
+            $response = Http::withHeaders([
+                    'Authorization' => (string) $this->apiToken,
+                    'Content-Type' => 'application/json',
+                ])->timeout(3)
+                ->post('https://api.clickup.com/api/v2/team/' . $teamId . '/time_entries', $payload);
 
-        if ($response->failed()) {
-            Log::warning('ClickUp create time entry failed', [
+            if ($response->failed()) {
+                Log::warning('ClickUp create time entry failed', [
+                    'teamId' => $teamId,
+                    'status' => $response->status(),
+                    'body' => $response->body(),
+                    'payload' => $payload,
+                ]);
+                return [
+                    'error' => true,
+                    'status' => $response->status(),
+                    'body' => (string) $response->body(),
+                ];
+            }
+
+            return $response->json() ?? ['ok' => true];
+        } catch (\Throwable $e) {
+            Log::warning('ClickUp create time entry exception', [
                 'teamId' => $teamId,
-                'status' => $response->status(),
-                'body' => $response->body(),
+                'message' => $e->getMessage(),
                 'payload' => $payload,
             ]);
-            return [];
+            return [
+                'error' => true,
+                'status' => 0,
+                'body' => 'exception: ' . $e->getMessage(),
+            ];
         }
-
-        return $response->json() ?? [];
     }
 }
 
