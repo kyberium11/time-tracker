@@ -170,13 +170,7 @@ const fetchMyTasks = async () => {
     try {
         const response = await api.get('/my/tasks');
         tasks.value = response.data;
-        if (tasks.value.length && selectedTaskId.value === null) {
-            selectedTaskId.value = tasks.value[0].id;
-        }
-        // If currently clocked in and we don't have a running task set, default to first
-        if (isClockedIn.value && runningTaskId.value === null && tasks.value.length) {
-            runningTaskId.value = tasks.value[0].id;
-        }
+        // Do NOT auto-select or auto-start any task to avoid unintended runs
     } catch (e) {
         // ignore if none
     }
@@ -350,8 +344,8 @@ const clockIn = async (taskId?: number | null) => {
     loading.value = true;
     try {
         const payload: any = {};
+        // Only attach task_id when explicitly provided by the user action
         if (typeof taskId === 'number') payload.task_id = taskId;
-        else if (typeof selectedTaskId.value === 'number') payload.task_id = selectedTaskId.value;
         await api.post('/time-entries/clock-in', payload);
         await fetchCurrentEntry();
         await fetchMyTasks();
