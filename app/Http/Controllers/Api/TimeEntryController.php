@@ -287,14 +287,14 @@ class TimeEntryController extends Controller
         // Push to ClickUp time tracking (v2 Create a time entry)
         $teamId = env('CLICKUP_TEAM_ID');
         if ($teamId && $open->task && $open->task->clickup_task_id) {
-            $durationMs = Carbon::parse($open->clock_out)->diffInMilliseconds(Carbon::parse($open->clock_in));
-            if ($durationMs <= 0) {
-                $durationMs = 1000; // enforce minimum 1s
-            }
+            $startMs = Carbon::parse($open->clock_in)->getTimestampMs();
+            $endMs = Carbon::parse($open->clock_out)->getTimestampMs();
+            $durationMs = max(1000, $endMs - $startMs);
             $payload = [
                 'tid' => (string) $open->task->clickup_task_id, // some docs reference 'tid'
                 'task_id' => (string) $open->task->clickup_task_id, // also send as 'task_id' for compatibility
-                'start' => Carbon::parse($open->clock_in)->getTimestampMs(),
+                'start' => $startMs,
+                'end' => $endMs,
                 'duration' => $durationMs,
                 'billable' => true,
                 'description' => 'Synced from Time Tracker',
