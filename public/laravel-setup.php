@@ -40,8 +40,28 @@ function executeCommand($command, $workingDir = null) {
     $oldDir = getcwd();
     chdir($workingDir);
     
+    // Set environment variables for Composer
+    $env = [
+        'HOME' => $workingDir,
+        'COMPOSER_HOME' => $workingDir . '/.composer',
+        'COMPOSER_CACHE_DIR' => $workingDir . '/.composer/cache'
+    ];
+    
+    // Create composer home directory if it doesn't exist
+    if (!is_dir($env['COMPOSER_HOME'])) {
+        mkdir($env['COMPOSER_HOME'], 0755, true);
+    }
+    
+    // Build the command with environment variables
+    $envString = '';
+    foreach ($env as $key => $value) {
+        $envString .= "$key=" . escapeshellarg($value) . ' ';
+    }
+    
+    $fullCommand = $envString . $command . ' 2>&1';
+    
     // Execute the command
-    exec($command . ' 2>&1', $output, $returnCode);
+    exec($fullCommand, $output, $returnCode);
     
     // Change back to original directory
     chdir($oldDir);
@@ -49,7 +69,7 @@ function executeCommand($command, $workingDir = null) {
     return [
         'output' => $output,
         'return_code' => $returnCode,
-        'command' => $command,
+        'command' => $fullCommand,
         'working_dir' => $workingDir
     ];
 }
@@ -58,6 +78,87 @@ function executeCommand($command, $workingDir = null) {
 function commandExists($command) {
     $result = executeCommand("which $command");
     return $result['return_code'] === 0;
+}
+
+// Function specifically for Composer commands
+function executeComposerCommand($command, $workingDir = null) {
+    if ($workingDir === null) {
+        $workingDir = dirname(__DIR__); // Go to parent directory (Laravel root)
+    }
+    
+    // Try different composer paths
+    $composerPaths = [
+        'composer',
+        '/opt/cpanel/composer/bin/composer',
+        '/usr/local/bin/composer',
+        '/usr/bin/composer',
+        'php /opt/cpanel/composer/bin/composer.phar',
+        'php /usr/local/bin/composer.phar'
+    ];
+    
+    $composerFound = false;
+    $composerPath = null;
+    
+    foreach ($composerPaths as $path) {
+        if (file_exists($path) || commandExists($path)) {
+            $composerPath = $path;
+            $composerFound = true;
+            break;
+        }
+    }
+    
+    if (!$composerFound) {
+        return [
+            'output' => ['Composer not found. Please install Composer or contact your hosting provider.'],
+            'return_code' => 1,
+            'command' => 'composer not found',
+            'working_dir' => $workingDir
+        ];
+    }
+    
+    // Set up Composer environment
+    $env = [
+        'HOME' => $workingDir,
+        'COMPOSER_HOME' => $workingDir . '/.composer',
+        'COMPOSER_CACHE_DIR' => $workingDir . '/.composer/cache',
+        'COMPOSER_ALLOW_SUPERUSER' => '1'
+    ];
+    
+    // Create composer directories
+    if (!is_dir($env['COMPOSER_HOME'])) {
+        mkdir($env['COMPOSER_HOME'], 0755, true);
+    }
+    if (!is_dir($env['COMPOSER_CACHE_DIR'])) {
+        mkdir($env['COMPOSER_CACHE_DIR'], 0755, true);
+    }
+    
+    // Build environment string
+    $envString = '';
+    foreach ($env as $key => $value) {
+        $envString .= "$key=" . escapeshellarg($value) . ' ';
+    }
+    
+    $fullCommand = $envString . $composerPath . ' ' . $command . ' 2>&1';
+    
+    $output = [];
+    $returnCode = 0;
+    
+    // Change to working directory
+    $oldDir = getcwd();
+    chdir($workingDir);
+    
+    // Execute command
+    exec($fullCommand, $output, $returnCode);
+    
+    // Change back
+    chdir($oldDir);
+    
+    return [
+        'output' => $output,
+        'return_code' => $returnCode,
+        'command' => $fullCommand,
+        'working_dir' => $workingDir
+    ];
 }
 
 // Handle form submission
@@ -71,32 +172,7 @@ if ($_POST) {
     if (isset($_POST['run_composer'])) {
         echo "<h3>1. Installing Composer Dependencies</h3>";
         
-        // Check if composer exists
-        if (commandExists('composer')) {
-            $result = executeCommand('composer install --no-dev --optimize-autoloader --no-interaction', $workingDir);
-        } else {
-            // Try alternative composer paths
-            $composerPaths = [
-                '/opt/cpanel/composer/bin/composer',
-                '/usr/local/bin/composer',
-                '/usr/bin/composer',
-                'composer'
-            ];
-            
-            $composerFound = false;
-            foreach ($composerPaths as $composerPath) {
-                if (file_exists($composerPath) || commandExists($composerPath)) {
-                    $result = executeCommand("$composerPath install --no-dev --optimize-autoloader --no-interaction", $workingDir);
-                    $composerFound = true;
-                    break;
-                }
-            }
-            
-            if (!$composerFound) {
-                echo "<p class='error'>✗ Composer not found. Please install Composer or contact your hosting provider.</p>";
-                $result = ['output' => ['Composer not found'], 'return_code' => 1];
-            }
-        }
+        $result = executeComposerCommand('install --no-dev --optimize-autoloader --no-interaction', $workingDir);
         
         if ($result['return_code'] === 0) {
             echo "<p class='success'>✓ Composer dependencies installed successfully</p>";
@@ -182,27 +258,7 @@ if ($_POST) {
             echo "<h4>Running: $name</h4>";
             
             if ($name === 'composer') {
-                // Try different composer paths
-                $composerPaths = [
-                    'composer',
-                    '/opt/cpanel/composer/bin/composer',
-                    '/usr/local/bin/composer',
-                    '/usr/bin/composer'
-                ];
-                
-                $composerFound = false;
-                foreach ($composerPaths as $composerPath) {
-                    if (file_exists($composerPath) || commandExists($composerPath)) {
-                        $result = executeCommand("$composerPath install --no-dev --optimize-autoloader --no-interaction", $workingDir);
-                        $composerFound = true;
-                        break;
-                    }
-                }
-                
-                if (!$composerFound) {
-                    echo "<p class='error'>✗ Composer not found</p>";
-                    continue;
-                }
+                $result = executeComposerCommand('install --no-dev --optimize-autoloader --no-interaction', $workingDir);
             } else {
                 $result = executeCommand($command, $workingDir);
             }
