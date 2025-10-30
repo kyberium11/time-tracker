@@ -310,6 +310,34 @@ class AnalyticsController extends Controller
 
         $entries = $query->orderBy('date', 'desc')->paginate(50);
 
+        // Enrich with precise duration in seconds and HMS for reliable display
+        $entries = $entries->through(function ($entry) {
+            $clockIn = $entry->clock_in ? \Carbon\Carbon::parse($entry->clock_in) : null;
+            $clockOut = $entry->clock_out ? \Carbon\Carbon::parse($entry->clock_out) : null;
+            $seconds = 0;
+            if ($clockIn && $clockOut) {
+                $seconds = max(0, $clockOut->diffInSeconds($clockIn));
+                // Subtract break
+                if ($entry->break_start && $entry->break_end) {
+                    $seconds -= max(0, \Carbon\Carbon::parse($entry->break_end)->diffInSeconds(\Carbon\Carbon::parse($entry->break_start)));
+                }
+                // Subtract lunch
+                if ($entry->lunch_start && $entry->lunch_end) {
+                    $seconds -= max(0, \Carbon\Carbon::parse($entry->lunch_end)->diffInSeconds(\Carbon\Carbon::parse($entry->lunch_start)));
+                }
+                $seconds = max(0, $seconds);
+            }
+
+            $h = intdiv($seconds, 3600);
+            $m = intdiv($seconds % 3600, 60);
+            $s = $seconds % 60;
+            $pad = function ($n) { return $n < 10 ? '0'.$n : (string) $n; };
+
+            $entry->duration_seconds = $seconds;
+            $entry->duration_hms = $pad($h).'h '.$pad($m).'m '.$pad($s).'s';
+            return $entry;
+        });
+
         return response()->json($entries);
     }
 

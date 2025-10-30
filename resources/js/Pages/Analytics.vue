@@ -14,6 +14,7 @@ interface TimeEntry {
     lunch_start: string | null;
     lunch_end: string | null;
     total_hours: number;
+    duration_hms?: string; // provided by API for precise HMS
     user?: { id: number; name: string; email: string; team?: { id: number; name: string; } };
     task?: { id: number; name: string; clickup_id: string | null; };
 }
@@ -524,7 +525,7 @@ const exportPdf = () => {
                                         <td class="px-4 py-4 text-sm text-gray-500">{{ formatDate(entry.date) }}</td>
                                         <td class="px-4 py-4 text-sm text-gray-500">{{ formatTime(entry.clock_in) }}</td>
                                         <td class="px-4 py-4 text-sm text-gray-500">{{ formatTime(entry.clock_out) }}</td>
-                                        <td class="px-4 py-4 text-sm font-semibold text-gray-900">{{ formatHoursToHMS(entry.total_hours) }}</td>
+                                        <td class="px-4 py-4 text-sm font-semibold text-gray-900">{{ entry.duration_hms || formatHoursToHMS(entry.total_hours) }}</td>
                                     </tr>
                                     <tr v-if="entries.length === 0 && !entriesLoading">
                                         <td colspan="7" class="px-4 py-4 text-center text-sm text-gray-500">No entries found</td>
