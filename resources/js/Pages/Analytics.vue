@@ -191,6 +191,15 @@ const formatTime = (time: string | null) => {
     });
 };
 
+const formatHoursToHMS = (hours: number | string) => {
+    const totalSeconds = Math.round(Number(hours) * 3600);
+    const h = Math.floor(totalSeconds / 3600);
+    const m = Math.floor((totalSeconds % 3600) / 60);
+    const s = totalSeconds % 60;
+    const pad = (n: number) => (n < 10 ? `0${n}` : `${n}`);
+    return `${pad(h)}h ${pad(m)}m ${pad(s)}s`;
+};
+
 const exportCsv = () => {
     const params = new URLSearchParams({
         period: overviewPeriod.value,
@@ -342,7 +351,7 @@ const exportPdf = () => {
                                     <div class="ml-5 w-0 flex-1">
                                         <dl>
                                             <dt class="text-sm font-medium text-gray-500 truncate">Total Hours</dt>
-                                            <dd class="text-2xl font-semibold text-gray-900">{{ overviewData.statistics.total_hours }}h</dd>
+                                            <dd class="text-2xl font-semibold text-gray-900">{{ formatHoursToHMS(overviewData.statistics.total_hours) }}</dd>
                                         </dl>
                                     </div>
                                 </div>
@@ -394,7 +403,7 @@ const exportPdf = () => {
                     <div v-if="overviewData && !overviewLoading" class="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
                         <div class="bg-white overflow-hidden shadow rounded-lg p-5">
                             <h4 class="text-sm font-medium text-gray-500 mb-2">Average Hours</h4>
-                            <p class="text-3xl font-semibold text-gray-900">{{ overviewData.statistics.average_hours }}h</p>
+                            <p class="text-3xl font-semibold text-gray-900">{{ formatHoursToHMS(overviewData.statistics.average_hours) }}</p>
                         </div>
                         <div class="bg-white overflow-hidden shadow rounded-lg p-5">
                             <h4 class="text-sm font-medium text-gray-500 mb-2">Perfect Attendance</h4>
@@ -421,7 +430,7 @@ const exportPdf = () => {
                                 <tbody class="divide-y divide-gray-200">
                                     <tr v-for="employee in overviewData.top_employees" :key="employee.id">
                                         <td class="px-4 py-4 text-sm text-gray-900">{{ employee.name }}</td>
-                                        <td class="px-4 py-4 text-sm text-gray-500">{{ employee.total_hours }}h</td>
+                                        <td class="px-4 py-4 text-sm text-gray-500">{{ formatHoursToHMS(employee.total_hours) }}</td>
                                         <td class="px-4 py-4 text-sm text-gray-500">{{ employee.entries_count }}</td>
                                     </tr>
                                 </tbody>
@@ -515,7 +524,7 @@ const exportPdf = () => {
                                         <td class="px-4 py-4 text-sm text-gray-500">{{ formatDate(entry.date) }}</td>
                                         <td class="px-4 py-4 text-sm text-gray-500">{{ formatTime(entry.clock_in) }}</td>
                                         <td class="px-4 py-4 text-sm text-gray-500">{{ formatTime(entry.clock_out) }}</td>
-                                        <td class="px-4 py-4 text-sm font-semibold text-gray-900">{{ entry.total_hours }}h</td>
+                                        <td class="px-4 py-4 text-sm font-semibold text-gray-900">{{ formatHoursToHMS(entry.total_hours) }}</td>
                                     </tr>
                                     <tr v-if="entries.length === 0 && !entriesLoading">
                                         <td colspan="7" class="px-4 py-4 text-center text-sm text-gray-500">No entries found</td>

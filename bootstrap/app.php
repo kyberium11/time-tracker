@@ -20,6 +20,11 @@ return Application::configure(basePath: dirname(__DIR__))
         // Allow stateful domains for API authentication
         $middleware->statefulApi();
 
+        // Ensure midnight rollover on API calls for authenticated users
+        $middleware->api(append: [
+            \App\Http\Middleware\EnsureMidnightRollovers::class,
+        ]);
+
         $middleware->alias([
             'role' => \App\Http\Middleware\RoleMiddleware::class,
         ]);

@@ -30,6 +30,16 @@ interface TimeEvent {
     status: string;
 }
 
+interface ActivityLog {
+    id: number;
+    user_id: number;
+    action: string;
+    description: string;
+    metadata: any;
+    created_at: string;
+    user?: { id: number; name: string; email: string };
+}
+
 const currentEntry = ref<TimeEntry | null>(null);
 const loading = ref(false);
 const status = ref('');
@@ -43,6 +53,21 @@ const todayEntries = ref<any[]>([]);
 const taskEntries = ref<any[]>([]);
 const taskDetails = ref<any | null>(null);
 const showTaskModal = ref(false);
+
+// Admin activity logs
+const adminActivityLogs = ref<ActivityLog[]>([]);
+const adminActivityLoading = ref(false);
+const loadAdminActivityLogs = async () => {
+    adminActivityLoading.value = true;
+    try {
+        const res = await api.get('/admin/analytics/activity-logs', { params: { limit: 100 } });
+        adminActivityLogs.value = res.data?.data || [];
+    } catch (e) {
+        adminActivityLogs.value = [];
+    } finally {
+        adminActivityLoading.value = false;
+    }
+};
 
 let timeInterval: number | null = null;
 
@@ -161,6 +186,12 @@ const fetchUserRole = async () => {
         // Fallback: infer from first page listing current user if available
         const current = (me.data?.data || []).find((u: any) => u?.id && u?.email);
         if (current?.role) userRole.value = current.role;
+        if (userRole.value === 'admin') {
+            await loadAdminActivityLogs();
+            setInterval(() => {
+                loadAdminActivityLogs();
+            }, 5000);
+        }
     } catch (e) {
         // ignore; default employee
     }
@@ -202,6 +233,8 @@ const fetchTodayTaskEntries = async () => {
     try {
         const res = await api.get('/tasks/today-entries');
         taskEntries.value = res.data || [];
+        const open = (taskEntries.value || []).find((t: any) => t.clock_in && !t.clock_out);
+        runningTaskId.value = open ? open.task_id : null;
     } catch (e) {
         taskEntries.value = [];
     }
@@ -481,14 +514,14 @@ const endLunch = async () => {
         <div class="py-12">
             <div class="mx-auto max-w-7xl sm:px-6 lg:px-8">
                 <!-- Header Cards: Work Day Timer, Daily Logs -->
-                <div class="mb-6 grid gap-4 md:grid-cols-3">
+                <div class="mb-6 grid gap-4 md:grid-cols-3" v-if="userRole !== 'admin'">
                     <!-- Work Day Timer -->
                     <div class="overflow-hidden bg-white shadow sm:rounded-lg">
                         <div class="px-4 py-5 sm:p-6">
                             <h3 class="text-xs font-semibold uppercase tracking-wide text-gray-500">Work Day Timer</h3>
                             <p class="mt-2 text-3xl font-bold text-gray-900">{{ runningDisplay }}</p>
                             <p class="text-xs text-gray-500">{{ isOnBreak ? 'On Break' : isClockedIn ? 'Working' : 'Idle' }}</p>
-                            <div class="mt-4 flex flex-wrap gap-2" v-if="userRole !== 'admin'">
+                            <div class="mt-4 flex flex-wrap gap-2">
                                 <button @click="toggleWork" :disabled="loading" :class="['rounded-md px-3 py-1.5 text-xs font-semibold text-white', isClockedIn ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700']">
                                     {{ isClockedIn ? 'Time Out' : 'Time In' }}
                                 </button>
@@ -527,7 +560,38 @@ const endLunch = async () => {
                     
                 </div>
 
-                <!-- Removed Running Task and Status widgets per request -->
+                <!-- Admin: Real-Time Activity Log -->
+                <div v-if="userRole === 'admin'" class="mb-6 overflow-hidden bg-white shadow sm:rounded-lg">
+                    <div class="px-4 py-5 sm:p-6">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-lg font-medium leading-6 text-gray-900">Real-Time Activity Log</h3>
+                            <button @click="loadAdminActivityLogs" :disabled="adminActivityLoading" class="rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500">Refresh</button>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">User</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Action</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Description</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Time</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-gray-200 bg-white">
+                                    <tr v-for="log in adminActivityLogs" :key="log.id">
+                                        <td class="px-4 py-4 text-sm text-gray-900">{{ log.user?.name || 'Unknown' }}</td>
+                                        <td class="px-4 py-4 text-sm text-gray-500">{{ log.action }}</td>
+                                        <td class="px-4 py-4 text-sm text-gray-500">{{ log.description }}</td>
+                                        <td class="px-4 py-4 text-sm text-gray-500">{{ new Date(log.created_at).toLocaleString() }}</td>
+                                    </tr>
+                                    <tr v-if="adminActivityLogs.length === 0 && !adminActivityLoading">
+                                        <td colspan="4" class="px-4 py-4 text-center text-sm text-gray-500">No activity logs found</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
 
                 <!-- Manager/Employee: Task List with Play/Pause/Stop -->
                 <div v-if="userRole !== 'admin'" class="mb-6 overflow-hidden bg-white shadow sm:rounded-lg">
@@ -561,13 +625,6 @@ const endLunch = async () => {
                                 </tbody>
                             </table>
                         </div>
-                    </div>
-                </div>
-
-                <!-- Admin: show only time and logs (events table below still applies) -->
-                <div v-else class="mb-6 overflow-hidden bg-white shadow sm:rounded-lg">
-                    <div class="px-4 py-5 sm:p-6 text-sm text-gray-600">
-                        Admin view: see current time above and the real-time events table below.
                     </div>
                 </div>
 
@@ -616,12 +673,13 @@ const endLunch = async () => {
                                             {{ event.duration }}
                                         </td>
                                         <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
-                                            <div class="flex items-center space-x-2">
+                                            <div class="flex items-center space-x-2" v-if="userRole !== 'admin'">
                                                 <button @click="timeIn" :disabled="loading || isClockedIn" class="rounded-md bg-green-600 px-2 py-1 text-xs font-semibold text-white hover:bg-green-700">Time In</button>
                                                 <button @click="breakIn" :disabled="loading || !isClockedIn || isOnBreak" class="rounded-md bg-yellow-600 px-2 py-1 text-xs font-semibold text-white hover:bg-yellow-700">Break In</button>
                                                 <button @click="breakOut" :disabled="loading || !isOnBreak" class="rounded-md bg-orange-600 px-2 py-1 text-xs font-semibold text-white hover:bg-orange-700">Break Out</button>
                                                 <button @click="timeOut" :disabled="loading || !isClockedIn" class="rounded-md bg-red-600 px-2 py-1 text-xs font-semibold text-white hover:bg-red-700">Time Out</button>
                                             </div>
+                                            <span v-else class="text-xs text-gray-400">Admin view</span>
                                         </td>
                                     </tr>
                                     <!-- Task entries -->
@@ -639,10 +697,11 @@ const endLunch = async () => {
                                             {{ t.clock_in && t.clock_out ? calculateDuration(t.clock_in, t.clock_out) : (t.clock_in ? 'In progress' : '--') }}
                                         </td>
                                         <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
-                                            <div class="flex items-center space-x-2">
+                                            <div class="flex items-center space-x-2" v-if="userRole !== 'admin'">
                                                 <button @click="play(t.task_id)" :disabled="loading" class="rounded-md bg-green-600 px-2 py-1 text-xs font-semibold text-white hover:bg-green-700">Play</button>
                                                 <button @click="stop()" :disabled="loading" class="rounded-md bg-red-600 px-2 py-1 text-xs font-semibold text-white hover:bg-red-700">Stop</button>
                                             </div>
+                                            <span v-else class="text-xs text-gray-400">Admin view</span>
                                         </td>
                                     </tr>
                                 </tbody>
