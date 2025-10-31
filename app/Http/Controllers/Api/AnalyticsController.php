@@ -251,8 +251,7 @@ class AnalyticsController extends Controller
     public function individualEntries(Request $request)
     {
         $user = Auth::user()->load('managedTeam');
-        $query = TimeEntry::with(['user', 'user.team', 'task'])
-            ->whereNotNull('clock_out');
+        $query = TimeEntry::with(['user', 'user.team', 'task']);
 
         // If user is a manager, only show their team's data
         if ($user->role === 'manager') {

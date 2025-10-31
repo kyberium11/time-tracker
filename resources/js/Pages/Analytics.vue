@@ -520,10 +520,8 @@ const exportPdf = () => {
                                     <tr>
                                         <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Employee</th>
                                         <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Team</th>
-                                        <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Task</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Task Name</th>
                                         <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Date</th>
-                                        <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Clock In</th>
-                                        <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Clock Out</th>
                                         <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Total Hours</th>
                                     </tr>
                                 </thead>
@@ -531,14 +529,12 @@ const exportPdf = () => {
                                     <tr v-for="entry in entries" :key="entry.id">
                                         <td class="px-4 py-4 text-sm text-gray-900">{{ entry.user?.name }}</td>
                                         <td class="px-4 py-4 text-sm text-gray-500">{{ entry.user?.team?.name || '--' }}</td>
-                                        <td class="px-4 py-4 text-sm text-gray-500">{{ entry.task?.name || '--' }}</td>
+                                        <td class="px-4 py-4 text-sm text-gray-500">{{ entry.task?.name || (!entry.clock_out ? 'Clock In' : '--') }}</td>
                                         <td class="px-4 py-4 text-sm text-gray-500">{{ formatDate(entry.date) }}</td>
-                                        <td class="px-4 py-4 text-sm text-gray-500">{{ formatTime(entry.clock_in) }}</td>
-                                        <td class="px-4 py-4 text-sm text-gray-500">{{ formatTime(entry.clock_out) }}</td>
-                                        <td class="px-4 py-4 text-sm font-semibold text-gray-900">{{ entry.duration_hms || formatHoursToHMS(entry.total_hours) }}</td>
+                                        <td class="px-4 py-4 text-sm font-semibold text-gray-900">{{ entry.clock_out ? (entry.duration_hms || formatHoursToHMS(entry.total_hours)) : '--' }}</td>
                                     </tr>
                                     <tr v-if="entries.length === 0 && !entriesLoading">
-                                        <td colspan="7" class="px-4 py-4 text-center text-sm text-gray-500">No entries found</td>
+                                        <td colspan="5" class="px-4 py-4 text-center text-sm text-gray-500">No entries found</td>
                                     </tr>
                                 </tbody>
                             </table>
