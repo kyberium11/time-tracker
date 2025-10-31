@@ -558,12 +558,34 @@ const endLunch = async () => {
 };
 
 const completeTask = async (taskId: number) => {
+    if (!confirm('Are you sure you want to complete this task?')) {
+        return;
+    }
     loading.value = true;
     try {
         await api.post(`/tasks/${taskId}/status`, { status: 'complete' });
         await fetchMyTasks();
     } catch (e: any) {
         alert(e?.response?.data?.message || 'Failed to complete task');
+    } finally {
+        loading.value = false;
+    }
+};
+
+const onChangeStatus = async (taskId: number, newStatus: string) => {
+    if (!newStatus) return;
+    const confirmed = confirm(`Are you sure you want to set this task to "${newStatus}"?`);
+    if (!confirmed) {
+        // Refresh to revert the select back to the original value
+        await fetchMyTasks();
+        return;
+    }
+    loading.value = true;
+    try {
+        await api.post(`/tasks/${taskId}/status`, { status: newStatus });
+        await fetchMyTasks();
+    } catch (e: any) {
+        alert(e?.response?.data?.message || 'Failed to update task status');
     } finally {
         loading.value = false;
     }
@@ -737,8 +759,12 @@ const completeTask = async (taskId: number) => {
                                                     <svg v-if="runningTaskId !== t.id" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="h-4 w-4"><path d="M8 5v14l11-7z"/></svg>
                                                     <svg v-else xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="h-4 w-4"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>
                                                 </button>
-                                                <button v-if="(t.status || 'active') !== 'complete'" @click="completeTask(t.id)" :disabled="loading" class="rounded-md bg-gray-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-black">Complete</button>
-                                                <span v-else class="text-xs text-green-700 font-medium">Completed</span>
+                                                <select :value="t.status || ''" @change="onChangeStatus(t.id, ($event.target as HTMLSelectElement).value)" class="rounded-md border-gray-300 text-xs shadow-sm">
+                                                    <option disabled value="">Set status…</option>
+                                                    <option v-for="s in availableStatuses" :key="s + t.id" :value="s">{{ s }}</option>
+                                                    <option v-if="!availableStatuses.includes('complete')" value="complete">complete</option>
+                                                    <option v-if="!availableStatuses.includes('done')" value="done">done</option>
+                                                </select>
                                             </div>
                                         </td>
                                     </tr>
