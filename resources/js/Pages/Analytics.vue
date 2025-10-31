@@ -147,8 +147,10 @@ const loadUserDaily = async () => {
         const overtime = Math.max(0, work - eight);
         let status = 'No Entry';
         if (firstIn) {
-            const threshold = new Date(firstIn as Date); threshold.setHours(8, 30, 0, 0);
-            status = (firstIn as Date).getTime() <= threshold.getTime() ? 'Perfect' : 'Late';
+            // Compare using Manila local time 08:30
+            const manilaHours = ((firstIn as Date).getUTCHours() + 8) % 24;
+            const manilaMinutes = (firstIn as Date).getUTCMinutes();
+            status = (manilaHours < 8 || (manilaHours === 8 && manilaMinutes <= 30)) ? 'Perfect' : 'Late';
         }
         dailyTotals.value = { workSeconds: work, breakSeconds: brk, lunchSeconds: lunch, tasksCount: tasks, status, overtimeSeconds: overtime };
     } catch (e) {
@@ -193,6 +195,8 @@ const formatDate = (date: string) => {
     });
 };
 
+const PH_TZ = 'Asia/Manila';
+
 const formatTime = (time: string | null) => {
     if (!time) return '--';
     // Handle common formats reliably without timezone shifts
@@ -206,11 +210,11 @@ const formatTime = (time: string | null) => {
         if (hh === 0) hh = 12;
         return `${hh}:${mm} ${suffix}`;
     }
-    // Fallback to Date parsing if already ISO
+    // Fallback using robust parser and fixed Manila timezone display
     try {
-        const d = new Date(time);
-        if (!isNaN(d.getTime())) {
-            return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+        const d = parseDateTime(time);
+        if (d && !isNaN(d.getTime())) {
+            return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: PH_TZ });
         }
     } catch {}
     return '--';
@@ -250,8 +254,8 @@ const parseDateTime = (s: string | null): Date | null => {
         const hh = Number(sql[4]);
         const mm = Number(sql[5]);
         const ss = Number(sql[6] || '0');
-        // Treat naive SQL timestamps as UTC so that display is in the user's local timezone
-        return new Date(Date.UTC(y, mo, d, hh, mm, ss));
+        // Treat naive SQL timestamps as Manila local, map to UTC epoch for correct math
+        return new Date(Date.UTC(y, mo, d, hh - 8, mm, ss));
     }
     const norm = s.includes('T') ? s : s.replace(' ', 'T');
     const d2 = new Date(norm);
