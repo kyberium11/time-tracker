@@ -160,6 +160,25 @@ if ($_POST) {
         }
     }
     
+    if (isset($_POST['run_migrate_priority'])) {
+        echo '<h4>2b. Running Priority Column Migration</h4>';
+        $migrationPath = 'database/migrations/2025_10_31_000001_add_priority_to_tasks_table.php';
+        if (!file_exists($workingDir . '/.env')) {
+            echo '<div class="alert alert-error">✗ .env file not found. Please create it first using the setup script.</div>';
+        } else if (!file_exists($workingDir . '/' . $migrationPath)) {
+            echo '<div class="alert alert-error">✗ Migration file not found at ' . htmlspecialchars($migrationPath) . '</div>';
+        } else {
+            $cmd = 'php artisan migrate --path=' . escapeshellarg($migrationPath) . ' --force';
+            $result = executeCommand($cmd, $workingDir);
+            if ($result['return_code'] === 0) {
+                echo '<div class="alert alert-success">✓ Priority migration executed successfully</div>';
+            } else {
+                echo '<div class="alert alert-error">✗ Priority migration failed</div>';
+            }
+            echo '<pre>' . htmlspecialchars(implode("\n", $result['output'])) . '</pre>';
+        }
+    }
+    
     if (isset($_POST['run_config_cache'])) {
         echo '<h4>3. Caching Configuration</h4>';
         
@@ -289,6 +308,9 @@ echo '<h4>Run Database Migrations</h4>';
 echo '<p>Creates all database tables and structure</p>';
 echo '<form method="post" style="display: inline;">';
 echo '<input type="submit" name="run_migrate" value="Run Migrations" class="btn">';
+echo '</form>';
+echo '<form method="post" style="display: inline; margin-left:8px;">';
+echo '<input type="submit" name="run_migrate_priority" value="Run Priority Migration Only" class="btn btn-warning">';
 echo '</form>';
 echo '</div>';
 
