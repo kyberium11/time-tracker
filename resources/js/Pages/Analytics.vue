@@ -15,6 +15,8 @@ interface TimeEntry {
     lunch_end: string | null;
     total_hours: number;
     duration_hms?: string; // provided by API for precise HMS
+    duration_hms_colon?: string; // HH:MM:SS from API
+    duration_seconds?: number; // raw seconds from API
     user?: { id: number; name: string; email: string; team?: { id: number; name: string; } };
     task?: { id: number; name?: string; title?: string; clickup_id: string | null; };
 }
@@ -219,6 +221,15 @@ const formatHoursToHMS = (hours: number | string) => {
     const s = totalSeconds % 60;
     const pad = (n: number) => (n < 10 ? `0${n}` : `${n}`);
     return `${pad(h)}h ${pad(m)}m ${pad(s)}s`;
+};
+
+const formatSecondsToHHMMSS = (sec: number | null | undefined) => {
+    const total = typeof sec === 'number' && isFinite(sec) ? Math.max(0, Math.floor(sec)) : 0;
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+    const pad = (n: number) => (n < 10 ? `0${n}` : `${n}`);
+    return `${pad(h)}:${pad(m)}:${pad(s)}`;
 };
 
 const exportCsv = () => {
@@ -531,7 +542,7 @@ const exportPdf = () => {
                                         <td class="px-4 py-4 text-sm text-gray-500">{{ entry.user?.team?.name || '--' }}</td>
                                         <td class="px-4 py-4 text-sm text-gray-500">{{ entry.task?.title || entry.task?.name || (!entry.clock_out ? 'Clock In' : '--') }}</td>
                                         <td class="px-4 py-4 text-sm text-gray-500">{{ formatDate(entry.date) }}</td>
-                                        <td class="px-4 py-4 text-sm font-semibold text-gray-900">{{ entry.clock_out ? (entry.duration_hms || formatHoursToHMS(entry.total_hours)) : '--' }}</td>
+                                        <td class="px-4 py-4 text-sm font-semibold text-gray-900">{{ entry.clock_out ? (entry.duration_hms_colon || formatSecondsToHHMMSS(entry.duration_seconds) || formatSecondsToHHMMSS(Number(entry.total_hours) * 3600)) : '--' }}</td>
                                     </tr>
                                     <tr v-if="entries.length === 0 && !entriesLoading">
                                         <td colspan="5" class="px-4 py-4 text-center text-sm text-gray-500">No entries found</td>

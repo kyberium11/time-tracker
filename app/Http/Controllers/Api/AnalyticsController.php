@@ -360,6 +360,7 @@ class AnalyticsController extends Controller
 
             $entry->duration_seconds = $seconds;
             $entry->duration_hms = $pad($h).'h '.$pad($m).'m '.$pad($s).'s';
+            $entry->duration_hms_colon = $pad($h).':'.$pad($m).':'.$pad($s);
             return $entry;
         });
 
