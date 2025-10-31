@@ -250,7 +250,8 @@ const parseDateTime = (s: string | null): Date | null => {
         const hh = Number(sql[4]);
         const mm = Number(sql[5]);
         const ss = Number(sql[6] || '0');
-        return new Date(y, mo, d, hh, mm, ss);
+        // Treat naive SQL timestamps as UTC so that display is in the user's local timezone
+        return new Date(Date.UTC(y, mo, d, hh, mm, ss));
     }
     const norm = s.includes('T') ? s : s.replace(' ', 'T');
     const d2 = new Date(norm);
@@ -532,7 +533,7 @@ const exportPdf = () => {
                     <div class="bg-white shadow rounded-lg p-5">
                         <h3 class="text-lg font-medium leading-6 text-gray-900 mb-4">Daily Summary</h3>
                         <div class="grid gap-4 sm:grid-cols-3 lg:grid-cols-6 text-sm">
-                            <div><div class="text-gray-500">🕒 Total Work Hours</div><div class="font-semibold">{{ formatSecondsToHHMMSS(dailyTotals.workSeconds) }}</div></div>
+                            <div><div class="text-gray-500">🕒 Time In Hours</div><div class="font-semibold">{{ formatSecondsToHHMMSS(dailyTotals.workSeconds) }}</div></div>
                             <div><div class="text-gray-500">☕ Total Breaks</div><div class="font-semibold">{{ formatSecondsToHHMMSS(dailyTotals.breakSeconds) }}</div></div>
                             <div><div class="text-gray-500">🍱 Total Lunch</div><div class="font-semibold">{{ formatSecondsToHHMMSS(dailyTotals.lunchSeconds) }}</div></div>
                             <div><div class="text-gray-500">📋 Tasks Done</div><div class="font-semibold">{{ dailyTotals.tasksCount }}</div></div>
