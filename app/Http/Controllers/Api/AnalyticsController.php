@@ -218,13 +218,39 @@ class AnalyticsController extends Controller
         $startDate = $request->input('start_date', now()->startOfMonth());
         $endDate = $request->input('end_date', now()->endOfMonth());
 
-        $entries = TimeEntry::where('user_id', $user->id)
+        $entries = TimeEntry::with(['task'])
+            ->where('user_id', $user->id)
             ->whereBetween('date', [$startDate, $endDate])
             ->whereNotNull('clock_out')
             ->orderBy('date', 'desc')
             ->get();
 
-        $totalHours = $entries->sum('total_hours');
+        // Enrich per-entry precise seconds and HMS for frontend reliability
+        $entries = $entries->map(function ($entry) {
+            $clockIn = $entry->clock_in ? \Carbon\Carbon::parse($entry->clock_in) : null;
+            $clockOut = $entry->clock_out ? \Carbon\Carbon::parse($entry->clock_out) : null;
+            $seconds = 0;
+            if ($clockIn && $clockOut) {
+                $seconds = max(0, $clockOut->diffInSeconds($clockIn));
+                if ($entry->break_start && $entry->break_end) {
+                    $seconds -= max(0, \Carbon\Carbon::parse($entry->break_end)->diffInSeconds(\Carbon\Carbon::parse($entry->break_start)));
+                }
+                if ($entry->lunch_start && $entry->lunch_end) {
+                    $seconds -= max(0, \Carbon\Carbon::parse($entry->lunch_end)->diffInSeconds(\Carbon\Carbon::parse($entry->lunch_start)));
+                }
+                $seconds = max(0, $seconds);
+            }
+            $h = intdiv($seconds, 3600);
+            $m = intdiv($seconds % 3600, 60);
+            $s = $seconds % 60;
+            $pad = function ($n) { return $n < 10 ? '0'.$n : (string) $n; };
+            $entry->duration_seconds = $seconds;
+            $entry->duration_hms = $pad($h).'h '.$pad($m).'m '.$pad($s).'s';
+            $entry->duration_hms_colon = $pad($h).':'.$pad($m).':'.$pad($s);
+            return $entry;
+        });
+
+        $totalHours = round($entries->sum(function($e){ return ($e->duration_seconds ?? 0) / 3600; }), 2);
 
         return response()->json([
             'user' => [
