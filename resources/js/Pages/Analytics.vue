@@ -234,9 +234,20 @@ const formatSecondsToHHMMSS = (sec: number | null | undefined) => {
 
 const parseDateTime = (s: string | null): Date | null => {
     if (!s) return null;
+    // Robust parser for common formats: 'YYYY-MM-DD HH:mm:ss', ISO strings, etc.
+    const sql = s.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/);
+    if (sql) {
+        const y = Number(sql[1]);
+        const mo = Number(sql[2]) - 1;
+        const d = Number(sql[3]);
+        const hh = Number(sql[4]);
+        const mm = Number(sql[5]);
+        const ss = Number(sql[6] || '0');
+        return new Date(y, mo, d, hh, mm, ss);
+    }
     const norm = s.includes('T') ? s : s.replace(' ', 'T');
-    const d = new Date(norm);
-    return isNaN(d.getTime()) ? null : d;
+    const d2 = new Date(norm);
+    return isNaN(d2.getTime()) ? null : d2;
 };
 
 const computeEntryHHMMSS = (entry: TimeEntry) => {
