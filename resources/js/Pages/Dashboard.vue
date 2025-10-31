@@ -541,8 +541,20 @@ const endLunch = async () => {
                                     {{ tasks.find(t => t.id === runningTaskId)?.title || ('#' + runningTaskId) }}
                                 </button>
                                 <p class="text-2xl font-bold text-gray-900 mt-1">{{ runningTaskDisplay }}</p>
+                                <div class="mt-3">
+                                    <button @click="pause()" :disabled="loading" class="rounded-md bg-yellow-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-yellow-700">Pause</button>
+                                </div>
                             </div>
-                            <div v-else class="mt-2 text-sm text-gray-500">No task running</div>
+                            <div v-else class="mt-2">
+                                <div class="flex items-center gap-2">
+                                    <select v-model="selectedTaskId" class="rounded-md border-gray-300 text-sm shadow-sm">
+                                        <option :value="null">Select a task</option>
+                                        <option v-for="t in tasks" :key="t.id" :value="t.id">{{ t.title }}</option>
+                                    </select>
+                                    <button @click="selectedTaskId ? play(selectedTaskId) : undefined" :disabled="loading || !selectedTaskId" class="rounded-md bg-green-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-green-700 disabled:opacity-50">Start</button>
+                                </div>
+                                <p v-if="!tasks.length" class="text-sm text-gray-500 mt-2">No tasks available.</p>
+                            </div>
                         </div>
                     </div>
 
