@@ -229,6 +229,41 @@ class ClickUpService
             ];
         }
     }
+
+    public function updateTaskStatus(string $taskId, string $status): array
+    {
+        $headers = [
+            'Authorization' => (string) $this->apiToken,
+            'Content-Type' => 'application/json',
+            'Accept' => 'application/json',
+        ];
+        $base = 'https://api.clickup.com/api/v2/task/' . $taskId;
+        $teamId = env('CLICKUP_TEAM_ID');
+        $query = [ 'custom_task_ids' => 'true' ];
+        if ($teamId) { $query['team_id'] = $teamId; }
+
+        try {
+            $response = Http::withHeaders($headers)
+                ->timeout(4)
+                ->put($base, [ 'status' => $status ], $query);
+
+            if ($response->failed()) {
+                Log::warning('ClickUp update task status failed', [
+                    'taskId' => $taskId,
+                    'status' => $response->status(),
+                    'body' => $response->body(),
+                ]);
+                return [ 'error' => true, 'status' => $response->status(), 'body' => (string) $response->body() ];
+            }
+            return $response->json() ?? ['ok' => true];
+        } catch (\Throwable $e) {
+            Log::warning('ClickUp update task status exception', [
+                'taskId' => $taskId,
+                'message' => $e->getMessage(),
+            ]);
+            return [ 'error' => true, 'status' => 0, 'body' => 'exception: '.$e->getMessage() ];
+        }
+    }
 }
 
 

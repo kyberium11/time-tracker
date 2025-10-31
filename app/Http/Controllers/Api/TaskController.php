@@ -7,6 +7,7 @@ use App\Models\Task;
 use Illuminate\Support\Facades\Auth;
 use App\Services\ClickUpService;
 use Carbon\Carbon;
+use Illuminate\Http\Request;
 
 class TaskController extends Controller
 {
@@ -58,6 +59,26 @@ class TaskController extends Controller
             ]);
         }
         return response()->json(['task' => $task, 'clickup' => $remote]);
+    }
+
+    /**
+     * Update local task status and sync to ClickUp if linked.
+     */
+    public function updateStatus(string $id, Request $request, ClickUpService $clickUp)
+    {
+        $task = Task::where('user_id', Auth::id())->findOrFail($id);
+        $status = (string) $request->input('status', 'complete');
+
+        // Update local first
+        $task->status = $status;
+        $task->save();
+
+        // Push to ClickUp if linked
+        if ($task->clickup_task_id) {
+            $clickUp->updateTaskStatus($task->clickup_task_id, $status);
+        }
+
+        return response()->json(['ok' => true, 'task' => $task]);
     }
 }
 

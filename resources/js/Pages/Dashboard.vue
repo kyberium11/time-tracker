@@ -54,6 +54,37 @@ const taskEntries = ref<any[]>([]);
 const taskDetails = ref<any | null>(null);
 const showTaskModal = ref(false);
 
+// My Tasks table controls
+const taskSearch = ref('');
+const currentTaskPage = ref(1);
+const tasksPerPage = ref(10);
+const taskStatusFilter = ref<'all' | 'active' | 'complete'>('all');
+
+const filteredTasks = computed(() => {
+    const q = taskSearch.value.trim().toLowerCase();
+    let base = tasks.value;
+    if (taskStatusFilter.value !== 'all') {
+        base = base.filter(t => (t.status || 'active').toLowerCase() === taskStatusFilter.value);
+    }
+    if (!q) return base;
+    return base.filter(t => (t.title || '').toLowerCase().includes(q));
+});
+
+const totalTaskPages = computed(() => {
+    return Math.max(1, Math.ceil(filteredTasks.value.length / tasksPerPage.value));
+});
+
+const paginatedTasks = computed(() => {
+    const page = Math.min(currentTaskPage.value, totalTaskPages.value);
+    const start = (page - 1) * tasksPerPage.value;
+    return filteredTasks.value.slice(start, start + tasksPerPage.value);
+});
+
+const goTaskPage = (page: number) => {
+    const clamped = Math.max(1, Math.min(page, totalTaskPages.value));
+    currentTaskPage.value = clamped;
+};
+
 // Admin activity logs
 const adminActivityLogs = ref<ActivityLog[]>([]);
 const adminActivityLoading = ref(false);
@@ -499,6 +530,18 @@ const endLunch = async () => {
         loading.value = false;
     }
 };
+
+const completeTask = async (taskId: number) => {
+    loading.value = true;
+    try {
+        await api.post(`/tasks/${taskId}/status`, { status: 'complete' });
+        await fetchMyTasks();
+    } catch (e: any) {
+        alert(e?.response?.data?.message || 'Failed to complete task');
+    } finally {
+        loading.value = false;
+    }
+};
 </script>
 
 <template>
@@ -546,8 +589,8 @@ const endLunch = async () => {
                                 </div>
                             </div>
                             <div v-else class="mt-2">
-                                <div class="flex items-center gap-2">
-                                    <select v-model="selectedTaskId" class="rounded-md border-gray-300 text-sm shadow-sm">
+                                <div class="flex items-center gap-2 w-full">
+                                    <select v-model="selectedTaskId" class="w-full rounded-md border-gray-300 text-sm shadow-sm">
                                         <option :value="null">Select a task</option>
                                         <option v-for="t in tasks" :key="t.id" :value="t.id">{{ t.title }}</option>
                                     </select>
@@ -610,7 +653,20 @@ const endLunch = async () => {
                     <div class="px-4 py-5 sm:p-6">
                         <div class="flex items-center justify-between mb-3">
                             <h3 class="text-lg font-medium leading-6 text-gray-900">My Tasks</h3>
-                            <!-- dropdown removed as requested -->
+                            <div class="flex items-center gap-2">
+                                <input v-model="taskSearch" @input="goTaskPage(1)" type="text" placeholder="Search tasks" class="rounded-md border-gray-300 text-sm shadow-sm" />
+                                <select v-model="taskStatusFilter" @change="goTaskPage(1)" class="rounded-md border-gray-300 text-sm shadow-sm">
+                                    <option value="all">All</option>
+                                    <option value="active">Active</option>
+                                    <option value="complete">Complete</option>
+                                </select>
+                                <select v-model.number="tasksPerPage" @change="goTaskPage(1)" class="rounded-md border-gray-300 text-sm shadow-sm">
+                                    <option :value="5">5</option>
+                                    <option :value="10">10</option>
+                                    <option :value="20">20</option>
+                                    <option :value="50">50</option>
+                                </select>
+                            </div>
                         </div>
                         <div class="overflow-x-auto">
                             <table class="min-w-full divide-y divide-gray-200">
@@ -621,7 +677,7 @@ const endLunch = async () => {
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-gray-200 bg-white">
-                                    <tr v-for="t in tasks" :key="t.id">
+                                    <tr v-for="t in paginatedTasks" :key="t.id">
                                         <td class="whitespace-nowrap px-6 py-4 text-sm text-indigo-600">
                                             <button @click="openTaskDetails(t.id)" class="hover:underline">{{ t.title }}</button>
                                         </td>
@@ -631,11 +687,22 @@ const endLunch = async () => {
                                                     <svg v-if="runningTaskId !== t.id" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="h-4 w-4"><path d="M8 5v14l11-7z"/></svg>
                                                     <svg v-else xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="h-4 w-4"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>
                                                 </button>
+                                                <button v-if="(t.status || 'active') !== 'complete'" @click="completeTask(t.id)" :disabled="loading" class="rounded-md bg-gray-900 px-3 py-1.5 text-xs font-semibold text-white hover:bg-black">Complete</button>
+                                                <span v-else class="text-xs text-green-700 font-medium">Completed</span>
                                             </div>
                                         </td>
                                     </tr>
                                 </tbody>
                             </table>
+                            <div class="flex items-center justify-between px-6 py-3 text-sm text-gray-600">
+                                <div>
+                                    Page {{ currentTaskPage }} of {{ totalTaskPages }} • {{ filteredTasks.length }} total
+                                </div>
+                                <div class="space-x-2">
+                                    <button @click="goTaskPage(currentTaskPage - 1)" :disabled="currentTaskPage <= 1" class="rounded-md border px-3 py-1 disabled:opacity-50">Prev</button>
+                                    <button @click="goTaskPage(currentTaskPage + 1)" :disabled="currentTaskPage >= totalTaskPages" class="rounded-md border px-3 py-1 disabled:opacity-50">Next</button>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>

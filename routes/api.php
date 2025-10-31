@@ -42,6 +42,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('/tasks/start', [TimeEntryController::class, 'startTask']);
     Route::post('/tasks/stop', [TimeEntryController::class, 'stopTask']);
     Route::get('/tasks/today-entries', [TimeEntryController::class, 'todayTaskEntries']);
+    Route::post('/tasks/{id}/status', [TaskController::class, 'updateStatus']);
 
     // Admin: ClickUp webhook logs
     Route::middleware(['role:admin'])->get('/admin/clickup/webhook-logs', [ClickUpLogController::class, 'index']);
