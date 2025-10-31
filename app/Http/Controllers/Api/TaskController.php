@@ -54,7 +54,12 @@ class TaskController extends Controller
                 'title' => (string) data_get($remote, 'name', $task->title),
                 'description' => (string) data_get($remote, 'text_content', $task->description),
                 'status' => (string) data_get($remote, 'status.status', $task->status),
-                'priority' => (string) (data_get($remote, 'priority.priority') ?: data_get($remote, 'priority') ?: $task->priority),
+                'priority' => (string) (
+                    data_get($remote, 'priority.label')
+                    ?: data_get($remote, 'priority.priority')
+                    ?: data_get($remote, 'priority')
+                    ?: $task->priority
+                ),
                 'clickup_parent_id' => (string) (data_get($remote, 'parent') ?: $task->clickup_parent_id),
                 'due_date' => ($ms = data_get($remote, 'due_date')) ? Carbon::createFromTimestampMs((int) $ms) : $task->due_date,
             ]);

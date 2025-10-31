@@ -60,7 +60,15 @@ const showTaskModal = ref(false);
 const taskSearch = ref('');
 const currentTaskPage = ref(1);
 const tasksPerPage = ref(10);
-const taskStatusFilter = ref<'all' | 'active' | 'complete'>('all');
+const taskStatusFilter = ref<string>('all');
+const availableStatuses = computed<string[]>(() => {
+    const set = new Set<string>();
+    (tasks.value || []).forEach(t => {
+        const s = (t.status || '').toString().trim();
+        if (s) set.add(s);
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+});
 const taskPriorityFilter = ref<'all' | 'urgent' | 'high' | 'normal' | 'low' | 'none'>('all');
 const dueStart = ref<string>('');
 const dueEnd = ref<string>('');
@@ -69,7 +77,8 @@ const filteredTasks = computed(() => {
     const q = taskSearch.value.trim().toLowerCase();
     let base = tasks.value;
     if (taskStatusFilter.value !== 'all') {
-        base = base.filter(t => (t.status || 'active').toLowerCase() === taskStatusFilter.value);
+        const target = taskStatusFilter.value.toLowerCase();
+        base = base.filter(t => (t.status || '').toLowerCase() === target);
     }
     if (taskPriorityFilter.value !== 'all') {
         const p = taskPriorityFilter.value;
@@ -674,8 +683,7 @@ const completeTask = async (taskId: number) => {
                                 <input v-model="taskSearch" @input="goTaskPage(1)" type="text" placeholder="Search tasks" class="rounded-md border-gray-300 text-sm shadow-sm" />
                                 <select v-model="taskStatusFilter" @change="goTaskPage(1)" class="rounded-md border-gray-300 text-sm shadow-sm">
                                     <option value="all">All</option>
-                                    <option value="active">Active</option>
-                                    <option value="complete">Complete</option>
+                                    <option v-for="s in availableStatuses" :key="s" :value="s">{{ s }}</option>
                                 </select>
                                 <select v-model="taskPriorityFilter" @change="goTaskPage(1)" class="rounded-md border-gray-300 text-sm shadow-sm">
                                     <option value="all">All priorities</option>
@@ -711,7 +719,16 @@ const completeTask = async (taskId: number) => {
                                         <td class="whitespace-nowrap px-6 py-4 text-sm text-indigo-600">
                                             <button @click="openTaskDetails(t.id)" class="hover:underline">{{ t.title }}</button>
                                         </td>
-                                        <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-900">{{ (t.status || 'active') }}</td>
+                                        <td class="whitespace-nowrap px-6 py-4 text-sm">
+                                            <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold"
+                                                :class="{
+                                                    'bg-green-100 text-green-800': (t.status || '').toLowerCase().includes('complete') || (t.status || '').toLowerCase().includes('done'),
+                                                    'bg-yellow-100 text-yellow-800': (t.status || '').toLowerCase().includes('progress') || (t.status || '').toLowerCase().includes('doing'),
+                                                    'bg-gray-100 text-gray-800': !(t.status || '').trim()
+                                                }">
+                                                {{ t.status || '—' }}
+                                            </span>
+                                        </td>
                                         <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-900">{{ t.due_date ? new Date(t.due_date).toLocaleDateString() : '--' }}</td>
                                         <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-900">{{ t.priority || '--' }}</td>
                                         <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-900">
