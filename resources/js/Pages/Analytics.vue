@@ -258,9 +258,9 @@ const parseDateTime = (s: string | null): Date | null => {
 };
 
 const computeEntryHHMMSS = (entry: TimeEntry) => {
-    // Prefer server-provided values first
-    if (entry.duration_hms_colon) return entry.duration_hms_colon;
-    if (typeof entry.duration_seconds === 'number') return formatSecondsToHHMMSS(entry.duration_seconds);
+    // Prefer server-provided values only if non-zero
+    if (entry.duration_hms_colon && entry.duration_hms_colon !== '00:00:00') return entry.duration_hms_colon;
+    if (typeof entry.duration_seconds === 'number' && entry.duration_seconds > 0) return formatSecondsToHHMMSS(entry.duration_seconds);
     if (!entry.clock_in || !entry.clock_out) return '--';
     const cin = parseDateTime(entry.clock_in);
     const cout = parseDateTime(entry.clock_out);
