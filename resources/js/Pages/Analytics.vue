@@ -16,7 +16,7 @@ interface TimeEntry {
     total_hours: number;
     duration_hms?: string; // provided by API for precise HMS
     user?: { id: number; name: string; email: string; team?: { id: number; name: string; } };
-    task?: { id: number; name: string; clickup_id: string | null; };
+    task?: { id: number; name?: string; title?: string; clickup_id: string | null; };
 }
 
 interface User {
@@ -529,7 +529,7 @@ const exportPdf = () => {
                                     <tr v-for="entry in entries" :key="entry.id">
                                         <td class="px-4 py-4 text-sm text-gray-900">{{ entry.user?.name }}</td>
                                         <td class="px-4 py-4 text-sm text-gray-500">{{ entry.user?.team?.name || '--' }}</td>
-                                        <td class="px-4 py-4 text-sm text-gray-500">{{ entry.task?.name || (!entry.clock_out ? 'Clock In' : '--') }}</td>
+                                        <td class="px-4 py-4 text-sm text-gray-500">{{ entry.task?.title || entry.task?.name || (!entry.clock_out ? 'Clock In' : '--') }}</td>
                                         <td class="px-4 py-4 text-sm text-gray-500">{{ formatDate(entry.date) }}</td>
                                         <td class="px-4 py-4 text-sm font-semibold text-gray-900">{{ entry.clock_out ? (entry.duration_hms || formatHoursToHMS(entry.total_hours)) : '--' }}</td>
                                     </tr>
