@@ -232,6 +232,31 @@ const formatSecondsToHHMMSS = (sec: number | null | undefined) => {
     return `${pad(h)}:${pad(m)}:${pad(s)}`;
 };
 
+const parseDateTime = (s: string | null): Date | null => {
+    if (!s) return null;
+    const norm = s.includes('T') ? s : s.replace(' ', 'T');
+    const d = new Date(norm);
+    return isNaN(d.getTime()) ? null : d;
+};
+
+const computeEntryHHMMSS = (entry: TimeEntry) => {
+    // Prefer server-provided values first
+    if (entry.duration_hms_colon) return entry.duration_hms_colon;
+    if (typeof entry.duration_seconds === 'number') return formatSecondsToHHMMSS(entry.duration_seconds);
+    if (!entry.clock_in || !entry.clock_out) return '--';
+    const cin = parseDateTime(entry.clock_in);
+    const cout = parseDateTime(entry.clock_out);
+    if (!cin || !cout) return '00:00:00';
+    let seconds = Math.max(0, Math.floor((cout.getTime() - cin.getTime()) / 1000));
+    const bs = parseDateTime((entry as any).break_start || null);
+    const be = parseDateTime((entry as any).break_end || null);
+    if (bs && be) seconds -= Math.max(0, Math.floor((be.getTime() - bs.getTime()) / 1000));
+    const ls = parseDateTime((entry as any).lunch_start || null);
+    const le = parseDateTime((entry as any).lunch_end || null);
+    if (ls && le) seconds -= Math.max(0, Math.floor((le.getTime() - ls.getTime()) / 1000));
+    return formatSecondsToHHMMSS(Math.max(0, seconds));
+};
+
 const exportCsv = () => {
     const params = new URLSearchParams({
         period: overviewPeriod.value,
@@ -542,7 +567,7 @@ const exportPdf = () => {
                                         <td class="px-4 py-4 text-sm text-gray-500">{{ entry.user?.team?.name || '--' }}</td>
                                         <td class="px-4 py-4 text-sm text-gray-500">{{ entry.task?.title || entry.task?.name || (!entry.clock_out ? 'Clock In' : '--') }}</td>
                                         <td class="px-4 py-4 text-sm text-gray-500">{{ formatDate(entry.date) }}</td>
-                                        <td class="px-4 py-4 text-sm font-semibold text-gray-900">{{ entry.clock_out ? (entry.duration_hms_colon || formatSecondsToHHMMSS(entry.duration_seconds) || formatSecondsToHHMMSS(Number(entry.total_hours) * 3600)) : '--' }}</td>
+                                        <td class="px-4 py-4 text-sm font-semibold text-gray-900">{{ entry.clock_out ? computeEntryHHMMSS(entry) : '--' }}</td>
                                     </tr>
                                     <tr v-if="entries.length === 0 && !entriesLoading">
                                         <td colspan="5" class="px-4 py-4 text-center text-sm text-gray-500">No entries found</td>
