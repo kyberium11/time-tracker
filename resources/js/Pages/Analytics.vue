@@ -186,14 +186,34 @@ const formatDate = (date: string) => {
 
 const formatTime = (time: string | null) => {
     if (!time) return '--';
-    return new Date(time).toLocaleTimeString('en-US', { 
-        hour: '2-digit', 
-        minute: '2-digit'
-    });
+    // Handle common formats reliably without timezone shifts
+    // Prefer extracting HH:mm from known formats like 'YYYY-MM-DD HH:mm:ss'
+    const match = time.match(/\b(\d{2}):(\d{2})(?::(\d{2}))?/);
+    if (match) {
+        let hh = parseInt(match[1], 10);
+        const mm = match[2];
+        const suffix = hh >= 12 ? 'PM' : 'AM';
+        hh = hh % 12;
+        if (hh === 0) hh = 12;
+        return `${hh}:${mm} ${suffix}`;
+    }
+    // Fallback to Date parsing if already ISO
+    try {
+        const d = new Date(time);
+        if (!isNaN(d.getTime())) {
+            return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
+        }
+    } catch {}
+    return '--';
 };
 
 const formatHoursToHMS = (hours: number | string) => {
-    const totalSeconds = Math.round(Number(hours) * 3600);
+    if (typeof hours === 'string' && /h\s+\d{2}m\s+\d{2}s/.test(hours)) {
+        return hours as string;
+    }
+    const parsed = Number(hours);
+    if (!isFinite(parsed)) return '00h 00m 00s';
+    const totalSeconds = Math.round(parsed * 3600);
     const h = Math.floor(totalSeconds / 3600);
     const m = Math.floor((totalSeconds % 3600) / 60);
     const s = totalSeconds % 60;
@@ -257,17 +277,7 @@ const exportPdf = () => {
                         >
                             Individual Entries
                         </button>
-                        <button
-                            @click="activeTab = 'summary'"
-                            :class="[
-                                'whitespace-nowrap border-b-2 py-4 px-1 text-sm font-medium',
-                                activeTab === 'summary'
-                                    ? 'border-indigo-500 text-indigo-600'
-                                    : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
-                            ]"
-                        >
-                            User Summary
-                        </button>
+                        
                         <button
                             @click="activeTab = 'activity'; loadActivityLogs()"
                             :class="[
@@ -352,7 +362,7 @@ const exportPdf = () => {
                                     <div class="ml-5 w-0 flex-1">
                                         <dl>
                                             <dt class="text-sm font-medium text-gray-500 truncate">Total Hours</dt>
-                                            <dd class="text-2xl font-semibold text-gray-900">{{ formatHoursToHMS(overviewData.statistics.total_hours) }}</dd>
+                                            <dd class="text-2xl font-semibold text-gray-900">{{ overviewData.statistics.total_hms || formatHoursToHMS(overviewData.statistics.total_hours) }}</dd>
                                         </dl>
                                     </div>
                                 </div>
@@ -540,10 +550,7 @@ const exportPdf = () => {
                     </div>
                 </div>
 
-                <!-- User Summary Tab -->
-                <div v-if="activeTab === 'summary'" class="text-center py-12 text-gray-500">
-                    <p>User Summary functionality coming soon...</p>
-                </div>
+                
 
                 <!-- Activity Log Tab -->
                 <div v-if="activeTab === 'activity'" class="space-y-6">

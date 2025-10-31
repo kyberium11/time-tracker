@@ -89,8 +89,33 @@ class AnalyticsController extends Controller
                     ->get();
             }
 
-            $totalHours = $entries->sum('total_hours');
-            $avgHours = $users->count() > 0 ? round($totalHours / $users->count(), 2) : 0;
+            // Use precise seconds for totals to avoid floating point/format issues
+            $totalSeconds = $entries->sum(function ($entry) {
+                $clockIn = $entry->clock_in ? \Carbon\Carbon::parse($entry->clock_in) : null;
+                $clockOut = $entry->clock_out ? \Carbon\Carbon::parse($entry->clock_out) : null;
+                $seconds = 0;
+                if ($clockIn && $clockOut) {
+                    $seconds = max(0, $clockOut->diffInSeconds($clockIn));
+                    if ($entry->break_start && $entry->break_end) {
+                        $seconds -= max(0, \Carbon\Carbon::parse($entry->break_end)->diffInSeconds(\Carbon\Carbon::parse($entry->break_start)));
+                    }
+                    if ($entry->lunch_start && $entry->lunch_end) {
+                        $seconds -= max(0, \Carbon\Carbon::parse($entry->lunch_end)->diffInSeconds(\Carbon\Carbon::parse($entry->lunch_start)));
+                    }
+                    $seconds = max(0, $seconds);
+                }
+                return $seconds;
+            });
+
+            $totalHours = round($totalSeconds / 3600, 2);
+            $avgHours = $users->count() > 0 ? round(($totalSeconds / 3600) / $users->count(), 2) : 0;
+
+            // Pre-format HMS for frontend display
+            $h = intdiv($totalSeconds, 3600);
+            $m = intdiv($totalSeconds % 3600, 60);
+            $s = $totalSeconds % 60;
+            $pad = function ($n) { return $n < 10 ? '0'.$n : (string) $n; };
+            $totalHms = $pad($h).'h '.$pad($m).'m '.$pad($s).'s';
             
             // Calculate attendance metrics
             $totalDays = $users->count() > 0 ? $users->count() : 1;
@@ -120,7 +145,8 @@ class AnalyticsController extends Controller
                 ],
                 'statistics' => [
                     'total_employees' => $users->count(),
-                    'total_hours' => round($totalHours, 2),
+                    'total_hours' => $totalHours,
+                    'total_hms' => $totalHms,
                     'average_hours' => $avgHours,
                     'total_entries' => $entries->count(),
                     'perfect_attendance_count' => $perfectAttendance,
