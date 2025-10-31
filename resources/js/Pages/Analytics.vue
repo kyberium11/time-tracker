@@ -51,16 +51,20 @@ const overviewPeriod = ref('month');
 const overviewData = ref<any>(null);
 const overviewLoading = ref(false);
 
-// Individual Entries Tab Data
+// User Summary Tab Data
 const selectedUser = ref<any>(null);
-const selectedTeam = ref<any>(null);
-const startDate = ref('');
-const endDate = ref('');
-const statusFilter = ref('');
+const summaryDate = ref('');
 const allUsers = ref<User[]>([]);
-const allTeams = ref<Team[]>([]);
-const entries = ref<TimeEntry[]>([]);
-const entriesLoading = ref(false);
+const sessions = ref<TimeEntry[]>([]);
+const sessionsLoading = ref(false);
+const dailyTotals = ref({
+    workSeconds: 0,
+    breakSeconds: 0,
+    lunchSeconds: 0,
+    tasksCount: 0,
+    status: 'No Entry',
+    overtimeSeconds: 0,
+});
 
 // User Summary Tab Data
 const userSummary = ref<any[]>([]);
@@ -73,16 +77,11 @@ const lastPollTimestamp = ref<number>(Date.now());
 
 onMounted(() => {
     const today = new Date();
-    const firstDay = new Date(today.getFullYear(), today.getMonth(), 1);
-    const lastDay = new Date(today.getFullYear(), today.getMonth() + 1, 0);
-    
-    startDate.value = firstDay.toISOString().split('T')[0];
-    endDate.value = lastDay.toISOString().split('T')[0];
+    summaryDate.value = today.toISOString().split('T')[0];
     
     loadOverviewData();
     loadUsers();
-    loadTeams();
-    loadEntries();
+    if (activeTab.value === 'summary') loadUserDaily();
     loadActivityLogs();
     
     // Set up polling for activity logs every 5 seconds
@@ -117,39 +116,47 @@ const loadUsers = async () => {
     }
 };
 
-const loadTeams = async () => {
+const loadUserDaily = async () => {
+    if (!selectedUser.value) return;
+    sessionsLoading.value = true;
     try {
-        const response = await api.get('/teams');
-        allTeams.value = response.data.data || response.data;
-    } catch (error) {
-        console.error('Error loading teams:', error);
-    }
-};
+        const res = await api.get(`/admin/analytics/user/${selectedUser.value}`, {
+            params: { start_date: summaryDate.value, end_date: summaryDate.value },
+        });
+        const list: TimeEntry[] = res.data?.entries || res.data || [];
+        sessions.value = list;
 
-const loadEntries = async () => {
-    entriesLoading.value = true;
-    try {
-        const params: any = {
-            start_date: startDate.value,
-            end_date: endDate.value,
-        };
-        if (selectedUser.value) {
-            params.user_id = selectedUser.value;
+        // compute totals
+        let work = 0, brk = 0, lunch = 0, tasks = 0;
+        let firstIn: Date | null = null;
+        list.forEach((e: any) => {
+            const cin = parseDateTime(e.clock_in);
+            const cout = parseDateTime(e.clock_out);
+            if (cin && (!firstIn || cin < firstIn)) firstIn = cin;
+            if (cin && cout) {
+                let s = Math.max(0, Math.floor((cout.getTime() - cin.getTime()) / 1000));
+                const bs = parseDateTime(e.break_start); const be = parseDateTime(e.break_end);
+                if (bs && be) { const b = Math.max(0, Math.floor((be.getTime() - bs.getTime()) / 1000)); brk += b; s -= b; }
+                const ls = parseDateTime(e.lunch_start); const le = parseDateTime(e.lunch_end);
+                if (ls && le) { const l = Math.max(0, Math.floor((le.getTime() - ls.getTime()) / 1000)); lunch += l; s -= l; }
+                work += Math.max(0, s);
+            }
+            if (e.task && (e.task.title || e.task.name)) tasks += 1;
+        });
+        const eight = 8 * 3600;
+        const overtime = Math.max(0, work - eight);
+        let status = 'No Entry';
+        if (firstIn) {
+            const threshold = new Date(firstIn as Date); threshold.setHours(8, 30, 0, 0);
+            status = (firstIn as Date).getTime() <= threshold.getTime() ? 'Perfect' : 'Late';
         }
-        if (selectedTeam.value) {
-            params.team_id = selectedTeam.value;
-        }
-        if (statusFilter.value) {
-            params.status = statusFilter.value;
-        }
-        
-        const response = await api.get('/admin/analytics/individual-entries', { params });
-        entries.value = response.data.data;
-    } catch (error) {
-        console.error('Error loading entries:', error);
-        alert('Failed to load entries');
+        dailyTotals.value = { workSeconds: work, breakSeconds: brk, lunchSeconds: lunch, tasksCount: tasks, status, overtimeSeconds: overtime };
+    } catch (e) {
+        console.error('Error loading user daily analytics', e);
+        sessions.value = [];
+        dailyTotals.value = { workSeconds: 0, breakSeconds: 0, lunchSeconds: 0, tasksCount: 0, status: 'No Entry', overtimeSeconds: 0 };
     } finally {
-        entriesLoading.value = false;
+        sessionsLoading.value = false;
     }
 };
 
@@ -271,8 +278,8 @@ const computeEntryHHMMSS = (entry: TimeEntry) => {
 const exportCsv = () => {
     const params = new URLSearchParams({
         period: overviewPeriod.value,
-        start_date: startDate.value,
-        end_date: endDate.value,
+        start_date: summaryDate.value,
+        end_date: summaryDate.value,
     });
     window.location.href = `/api/admin/analytics/export/csv?${params.toString()}`;
 };
@@ -280,8 +287,8 @@ const exportCsv = () => {
 const exportPdf = () => {
     const params = new URLSearchParams({
         period: overviewPeriod.value,
-        start_date: startDate.value,
-        end_date: endDate.value,
+        start_date: summaryDate.value,
+        end_date: summaryDate.value,
     });
     window.location.href = `/api/admin/analytics/export/pdf?${params.toString()}`;
 };
@@ -314,15 +321,15 @@ const exportPdf = () => {
                             Overview
                         </button>
                         <button
-                            @click="activeTab = 'individual'"
+                            @click="activeTab = 'summary'"
                             :class="[
                                 'whitespace-nowrap border-b-2 py-4 px-1 text-sm font-medium',
-                                activeTab === 'individual'
+                                activeTab === 'summary'
                                     ? 'border-indigo-500 text-indigo-600'
                                     : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
                             ]"
                         >
-                            Individual Entries
+                            User Summary
                         </button>
                         
                         <button
@@ -502,91 +509,68 @@ const exportPdf = () => {
                     </div>
                 </div>
 
-                <!-- Individual Entries Tab -->
-                <div v-if="activeTab === 'individual'" class="space-y-6">
+                <!-- User Summary Tab -->
+                <div v-if="activeTab === 'summary'" class="space-y-6">
                     <!-- Filters -->
                     <div class="bg-white shadow rounded-lg p-4">
-                        <div class="flex justify-between items-center mb-4">
-                            <h3 class="text-lg font-medium text-gray-900">Filters</h3>
-                            <div class="flex gap-2">
-                                <button
-                                    @click="exportCsv"
-                                    class="rounded-md bg-green-600 px-3 py-1.5 text-xs font-medium text-white shadow-sm hover:bg-green-500"
-                                >
-                                    Export CSV
-                                </button>
-                                <button
-                                    @click="exportPdf"
-                                    class="rounded-md bg-red-600 px-3 py-1.5 text-xs font-medium text-white shadow-sm hover:bg-red-500"
-                                >
-                                    Export PDF
-                                </button>
-                            </div>
-                        </div>
-                        <div class="grid gap-4 sm:grid-cols-5">
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">Team</label>
-                                <select v-model="selectedTeam" @change="loadEntries" class="w-full rounded-md border-gray-300 shadow-sm">
-                                    <option :value="null">All Teams</option>
-                                    <option v-for="team in allTeams" :key="team.id" :value="team.id">{{ team.name }}</option>
-                                </select>
-                            </div>
+                        <div class="grid gap-4 sm:grid-cols-3">
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-1">User</label>
-                                <select v-model="selectedUser" @change="loadEntries" class="w-full rounded-md border-gray-300 shadow-sm">
-                                    <option :value="null">All Users</option>
+                                <select v-model="selectedUser" @change="loadUserDaily" class="w-full rounded-md border-gray-300 shadow-sm">
+                                    <option :value="null">Select User</option>
                                     <option v-for="user in allUsers" :key="user.id" :value="user.id">{{ user.name }}</option>
                                 </select>
                             </div>
                             <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
-                                <input v-model="startDate" @change="loadEntries" type="date" class="w-full rounded-md border-gray-300 shadow-sm" />
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">End Date</label>
-                                <input v-model="endDate" @change="loadEntries" type="date" class="w-full rounded-md border-gray-300 shadow-sm" />
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">Status</label>
-                                <select v-model="statusFilter" @change="loadEntries" class="w-full rounded-md border-gray-300 shadow-sm">
-                                    <option value="">All</option>
-                                    <option value="late">Late</option>
-                                    <option value="undertime">Undertime</option>
-                                    <option value="overtime">Overtime</option>
-                                    <option value="perfect">Perfect</option>
-                                </select>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Date</label>
+                                <input v-model="summaryDate" @change="loadUserDaily" type="date" class="w-full rounded-md border-gray-300 shadow-sm" />
                             </div>
                         </div>
                     </div>
 
-                    <!-- Entries Table -->
+                    <!-- Daily Summary -->
+                    <div class="bg-white shadow rounded-lg p-5">
+                        <h3 class="text-lg font-medium leading-6 text-gray-900 mb-4">Daily Summary</h3>
+                        <div class="grid gap-4 sm:grid-cols-3 lg:grid-cols-6 text-sm">
+                            <div><div class="text-gray-500">🕒 Total Work Hours</div><div class="font-semibold">{{ formatSecondsToHHMMSS(dailyTotals.workSeconds) }}</div></div>
+                            <div><div class="text-gray-500">☕ Total Breaks</div><div class="font-semibold">{{ formatSecondsToHHMMSS(dailyTotals.breakSeconds) }}</div></div>
+                            <div><div class="text-gray-500">🍱 Total Lunch</div><div class="font-semibold">{{ formatSecondsToHHMMSS(dailyTotals.lunchSeconds) }}</div></div>
+                            <div><div class="text-gray-500">📋 Tasks Done</div><div class="font-semibold">{{ dailyTotals.tasksCount }}</div></div>
+                            <div><div class="text-gray-500">⏰ Status</div><div class="font-semibold" :class="{ 'text-green-700': dailyTotals.status==='Perfect', 'text-yellow-700': dailyTotals.status==='Late', 'text-gray-700': dailyTotals.status==='No Entry' }">{{ dailyTotals.status }}</div></div>
+                            <div><div class="text-gray-500">⚡ Overtime</div><div class="font-semibold">{{ formatSecondsToHHMMSS(dailyTotals.overtimeSeconds) }}</div></div>
+                        </div>
+                    </div>
+
+                    <!-- Sessions Table -->
                     <div class="bg-white shadow rounded-lg">
                         <div class="overflow-x-auto">
                             <table class="min-w-full divide-y divide-gray-200">
                                 <thead class="bg-gray-50">
                                     <tr>
-                                        <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Employee</th>
-                                        <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Team</th>
-                                        <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Task Name</th>
-                                        <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Date</th>
-                                        <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Total Hours</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Task</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Start Time</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">End Time</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Duration</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Break Duration</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Notes</th>
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-gray-200">
-                                    <tr v-for="entry in entries" :key="entry.id">
-                                        <td class="px-4 py-4 text-sm text-gray-900">{{ entry.user?.name }}</td>
-                                        <td class="px-4 py-4 text-sm text-gray-500">{{ entry.user?.team?.name || '--' }}</td>
-                                        <td class="px-4 py-4 text-sm text-gray-500">{{ entry.task?.title || entry.task?.name || (!entry.clock_out ? 'Clock In' : '--') }}</td>
-                                        <td class="px-4 py-4 text-sm text-gray-500">{{ formatDate(entry.date) }}</td>
-                                        <td class="px-4 py-4 text-sm font-semibold text-gray-900">{{ entry.clock_out ? computeEntryHHMMSS(entry) : '--' }}</td>
+                                    <tr v-for="e in sessions" :key="e.id">
+                                        <td class="px-4 py-4 text-sm text-gray-900">{{ e.task?.title || e.task?.name || 'Work' }}</td>
+                                        <td class="px-4 py-4 text-sm text-gray-500">{{ formatTime(e.clock_in) }}</td>
+                                        <td class="px-4 py-4 text-sm text-gray-500">{{ formatTime(e.clock_out) }}</td>
+                                        <td class="px-4 py-4 text-sm text-gray-900 font-semibold">{{ computeEntryHHMMSS(e) }}</td>
+                                        <td class="px-4 py-4 text-sm text-gray-500">{{ (()=>{ const bs=parseDateTime((e as any).break_start), be=parseDateTime((e as any).break_end); return (bs&&be)? formatSecondsToHHMMSS(Math.max(0, Math.floor((be.getTime()-bs.getTime())/1000))): '00:00:00' })() }}</td>
+                                        <td class="px-4 py-4 text-sm text-gray-500">{{ (e as any).lunch_start && (e as any).lunch_end ? 'Lunch' : '-' }}</td>
                                     </tr>
-                                    <tr v-if="entries.length === 0 && !entriesLoading">
-                                        <td colspan="5" class="px-4 py-4 text-center text-sm text-gray-500">No entries found</td>
+                                    <tr v-if="sessions.length === 0 && !sessionsLoading">
+                                        <td colspan="6" class="px-4 py-4 text-center text-sm text-gray-500">No entries for selected day</td>
                                     </tr>
                                 </tbody>
                             </table>
                         </div>
-                        <div v-if="entriesLoading" class="text-center py-8">
+                        <div v-if="sessionsLoading" class="text-center py-8">
                             <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
                             <p class="mt-2 text-sm text-gray-500">Loading...</p>
                         </div>
