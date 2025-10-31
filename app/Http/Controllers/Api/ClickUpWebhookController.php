@@ -162,6 +162,7 @@ class ClickUpWebhookController extends Controller
                     'title' => $displayTitle,
                     'description' => (string) data_get($task, 'text_content'),
                     'status' => (string) data_get($task, 'status.status'),
+                    'priority' => (string) (data_get($task, 'priority.priority') ?: data_get($task, 'priority') ?: null),
                     'clickup_parent_id' => (string) (data_get($task, 'parent') ?: null),
                     'due_date' => ($ms = data_get($task, 'due_date')) ? Carbon::createFromTimestampMs((int)$ms) : null,
                 ]

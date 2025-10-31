@@ -19,6 +19,8 @@ interface TaskItem {
     id: number;
     title: string;
     status: string | null;
+    priority?: string | null;
+    due_date?: string | null;
     clickup_task_id: string;
 }
 
@@ -59,12 +61,27 @@ const taskSearch = ref('');
 const currentTaskPage = ref(1);
 const tasksPerPage = ref(10);
 const taskStatusFilter = ref<'all' | 'active' | 'complete'>('all');
+const taskPriorityFilter = ref<'all' | 'urgent' | 'high' | 'normal' | 'low' | 'none'>('all');
+const dueStart = ref<string>('');
+const dueEnd = ref<string>('');
 
 const filteredTasks = computed(() => {
     const q = taskSearch.value.trim().toLowerCase();
     let base = tasks.value;
     if (taskStatusFilter.value !== 'all') {
         base = base.filter(t => (t.status || 'active').toLowerCase() === taskStatusFilter.value);
+    }
+    if (taskPriorityFilter.value !== 'all') {
+        const p = taskPriorityFilter.value;
+        base = base.filter(t => (t.priority || 'none').toLowerCase() === p);
+    }
+    if (dueStart.value) {
+        const start = new Date(dueStart.value).getTime();
+        base = base.filter(t => t.due_date ? new Date(t.due_date).getTime() >= start : false);
+    }
+    if (dueEnd.value) {
+        const end = new Date(dueEnd.value).getTime();
+        base = base.filter(t => t.due_date ? new Date(t.due_date).getTime() <= end : false);
     }
     if (!q) return base;
     return base.filter(t => (t.title || '').toLowerCase().includes(q));
@@ -660,6 +677,16 @@ const completeTask = async (taskId: number) => {
                                     <option value="active">Active</option>
                                     <option value="complete">Complete</option>
                                 </select>
+                                <select v-model="taskPriorityFilter" @change="goTaskPage(1)" class="rounded-md border-gray-300 text-sm shadow-sm">
+                                    <option value="all">All priorities</option>
+                                    <option value="urgent">Urgent</option>
+                                    <option value="high">High</option>
+                                    <option value="normal">Normal</option>
+                                    <option value="low">Low</option>
+                                    <option value="none">None</option>
+                                </select>
+                                <input v-model="dueStart" @change="goTaskPage(1)" type="date" class="rounded-md border-gray-300 text-sm shadow-sm" />
+                                <input v-model="dueEnd" @change="goTaskPage(1)" type="date" class="rounded-md border-gray-300 text-sm shadow-sm" />
                                 <select v-model.number="tasksPerPage" @change="goTaskPage(1)" class="rounded-md border-gray-300 text-sm shadow-sm">
                                     <option :value="5">5</option>
                                     <option :value="10">10</option>
@@ -673,6 +700,9 @@ const completeTask = async (taskId: number) => {
                                 <thead class="bg-gray-50">
                                     <tr>
                                         <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Task</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Status</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Due Date</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Priority</th>
                                         <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Actions</th>
                                     </tr>
                                 </thead>
@@ -681,6 +711,9 @@ const completeTask = async (taskId: number) => {
                                         <td class="whitespace-nowrap px-6 py-4 text-sm text-indigo-600">
                                             <button @click="openTaskDetails(t.id)" class="hover:underline">{{ t.title }}</button>
                                         </td>
+                                        <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-900">{{ (t.status || 'active') }}</td>
+                                        <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-900">{{ t.due_date ? new Date(t.due_date).toLocaleDateString() : '--' }}</td>
+                                        <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-900">{{ t.priority || '--' }}</td>
                                         <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-900">
                                             <div class="flex items-center space-x-2">
                                                 <button @click="runningTaskId === t.id ? pause() : play(t.id)" :disabled="loading" class="rounded-full p-2 text-white" :class="runningTaskId === t.id ? 'bg-yellow-600 hover:bg-yellow-700' : 'bg-green-600 hover:bg-green-700'" :aria-label="runningTaskId === t.id ? 'Pause' : 'Play'">

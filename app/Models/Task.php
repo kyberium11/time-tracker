@@ -12,6 +12,7 @@ class Task extends Model
         'title',
         'description',
         'status',
+        'priority',
         'clickup_task_id',
         'clickup_parent_id',
         'due_date',
