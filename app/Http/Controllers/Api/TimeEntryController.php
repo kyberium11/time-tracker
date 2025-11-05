@@ -416,12 +416,47 @@ class TimeEntryController extends Controller
                 $totalMins = round($durationSeconds / 60, 3); // minutes with second-level precision
                 $notes = 'Time Tracker: +' . round($durationSeconds / 3600, 2) . 'h by ' . $user->name . ' (' . $start->format('Y-m-d H:i:s') . ' – ' . $end->format('Y-m-d H:i:s') . ')';
 
-                if ($cfTaskId) { $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTaskId, $clickupTaskId); }
-                if ($cfUser) { $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfUser, (string) $user->name); }
-                if ($cfTimeIn) { $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTimeIn, $timeInMs); }
-                if ($cfTimeOut) { $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTimeOut, $timeOutMs); }
-                if ($cfTotalMins) { $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTotalMins, $totalMins); }
-                if ($cfNotes) { $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfNotes, $notes); }
+                if ($cfTaskId) {
+                    $res = $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTaskId, $clickupTaskId);
+                    if (is_array($res) && ($res['error'] ?? false)) {
+                        $this->logActivity('clickup_report_cf_error', 'Failed to set Task ID', ['reportTaskId' => $reportTaskId, 'field' => 'TASK_ID', 'response' => $res]);
+                    }
+                } else { $this->logActivity('clickup_report_cf_missing', 'Missing CF id for Task ID'); }
+
+                if ($cfUser) {
+                    $res = $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfUser, (string) $user->name);
+                    if (is_array($res) && ($res['error'] ?? false)) {
+                        $this->logActivity('clickup_report_cf_error', 'Failed to set User', ['reportTaskId' => $reportTaskId, 'field' => 'USER', 'response' => $res]);
+                    }
+                } else { $this->logActivity('clickup_report_cf_missing', 'Missing CF id for User'); }
+
+                if ($cfTimeIn) {
+                    $res = $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTimeIn, $timeInMs);
+                    if (is_array($res) && ($res['error'] ?? false)) {
+                        $this->logActivity('clickup_report_cf_error', 'Failed to set Time In', ['reportTaskId' => $reportTaskId, 'field' => 'TIME_IN', 'response' => $res]);
+                    }
+                } else { $this->logActivity('clickup_report_cf_missing', 'Missing CF id for Time In'); }
+
+                if ($cfTimeOut) {
+                    $res = $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTimeOut, $timeOutMs);
+                    if (is_array($res) && ($res['error'] ?? false)) {
+                        $this->logActivity('clickup_report_cf_error', 'Failed to set Time Out', ['reportTaskId' => $reportTaskId, 'field' => 'TIME_OUT', 'response' => $res]);
+                    }
+                } else { $this->logActivity('clickup_report_cf_missing', 'Missing CF id for Time Out'); }
+
+                if ($cfTotalMins) {
+                    $res = $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTotalMins, $totalMins);
+                    if (is_array($res) && ($res['error'] ?? false)) {
+                        $this->logActivity('clickup_report_cf_error', 'Failed to set Total Time (mins)', ['reportTaskId' => $reportTaskId, 'field' => 'TOTAL_MINS', 'response' => $res]);
+                    }
+                } else { $this->logActivity('clickup_report_cf_missing', 'Missing CF id for Total Time (mins)'); }
+
+                if ($cfNotes) {
+                    $res = $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfNotes, $notes);
+                    if (is_array($res) && ($res['error'] ?? false)) {
+                        $this->logActivity('clickup_report_cf_error', 'Failed to set Notes', ['reportTaskId' => $reportTaskId, 'field' => 'NOTES', 'response' => $res]);
+                    }
+                } else { $this->logActivity('clickup_report_cf_missing', 'Missing CF id for Notes'); }
             }
         }
 
