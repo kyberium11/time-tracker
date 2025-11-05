@@ -378,11 +378,23 @@ class TimeEntryController extends Controller
             $createPayload = [
                 'name' => $taskName,
                 'description' => implode("\n", $descParts),
-                // Make it closed by default to avoid clutter, or leave open
-                'status' => 'Open',
+                // Do not set status explicitly; let list default apply to avoid API errors
             ];
             $created = $clickUp->createListTask((string) $reportListId, $createPayload);
             $reportTaskId = is_array($created) ? ($created['id'] ?? null) : null;
+
+            if (!$reportTaskId) {
+                $this->logActivity('clickup_report_row_error', 'Failed creating report row', [
+                    'listId' => (string) $reportListId,
+                    'payload' => $createPayload,
+                    'response' => $created,
+                ]);
+            } else {
+                $this->logActivity('clickup_report_row_created', 'Created report row', [
+                    'listId' => (string) $reportListId,
+                    'reportTaskId' => (string) $reportTaskId,
+                ]);
+            }
 
             // If custom field IDs are provided, set structured values
             if ($reportTaskId) {
