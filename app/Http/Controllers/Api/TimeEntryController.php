@@ -354,11 +354,11 @@ class TimeEntryController extends Controller
             if ($cfToday) { $clickUp->updateTaskCustomField($clickupTaskId, (string) $cfToday, round($todayHours, 2)); }
             if ($cfWeek) { $clickUp->updateTaskCustomField($clickupTaskId, (string) $cfWeek, round($weekHours, 2)); }
 
-            // Add a structured comment for auditability
-            $delta = round($open->total_hours, 2);
-            $startStr = Carbon::parse($open->clock_in)->format('H:i');
-            $endStr = Carbon::parse($open->clock_out)->format('H:i');
-            $comment = "Time Tracker: +{$delta}h by {$user->name} ({$startStr}–{$endStr})";
+            // Add a structured comment with second-level precision
+            $start = Carbon::parse($open->clock_in);
+            $end = Carbon::parse($open->clock_out);
+            $durationSeconds = max(1, $start->diffInSeconds($end));
+            $comment = 'Time Tracker: +' . $this->formatDurationSeconds($durationSeconds) . ' by ' . $user->name . ' (' . $start->format('Y-m-d H:i:s') . '–' . $end->format('Y-m-d H:i:s') . ')';
             $clickUp->addTaskComment($clickupTaskId, $comment);
         }
 
@@ -487,5 +487,21 @@ class TimeEntryController extends Controller
             'description' => $description,
             'metadata' => $metadata,
         ]);
+    }
+
+    /**
+     * Format a duration in seconds as Hh Mm Ss, omitting zero units except seconds.
+     */
+    private function formatDurationSeconds(int $seconds): string
+    {
+        $hours = intdiv($seconds, 3600);
+        $minutes = intdiv($seconds % 3600, 60);
+        $secs = $seconds % 60;
+
+        $parts = [];
+        if ($hours > 0) { $parts[] = $hours . 'h'; }
+        if ($minutes > 0 || $hours > 0) { $parts[] = $minutes . 'm'; }
+        $parts[] = $secs . 's';
+        return implode(' ', $parts);
     }
 }
