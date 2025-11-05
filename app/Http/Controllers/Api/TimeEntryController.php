@@ -362,6 +362,44 @@ class TimeEntryController extends Controller
             $clickUp->addTaskComment($clickupTaskId, $comment);
         }
 
+        // Create a reporting row in the dedicated ClickUp List (integration table)
+        $reportListId = env('CLICKUP_REPORT_LIST_ID');
+        if ($reportListId) {
+            $taskName = Carbon::parse($open->date)->toDateString() . ' | ' . ($open->task?->name ?? 'Task #' . $open->task_id) . ' | ' . round($open->total_hours, 2) . 'h';
+            $descParts = [
+                'User: ' . $user->name,
+                'Email: ' . $user->email,
+                'Local Task ID: ' . $open->task_id,
+                'ClickUp Task ID: ' . ($open->task?->clickup_task_id ?? 'n/a'),
+                'Start: ' . Carbon::parse($open->clock_in)->toDateTimeString(),
+                'End: ' . Carbon::parse($open->clock_out)->toDateTimeString(),
+                'Hours: ' . round($open->total_hours, 2),
+            ];
+            $createPayload = [
+                'name' => $taskName,
+                'description' => implode("\n", $descParts),
+                // Make it closed by default to avoid clutter, or leave open
+                'status' => 'Open',
+            ];
+            $created = $clickUp->createListTask((string) $reportListId, $createPayload);
+            $reportTaskId = is_array($created) ? ($created['id'] ?? null) : null;
+
+            // If custom field IDs are provided, set structured values
+            if ($reportTaskId) {
+                $cfDate = env('CLICKUP_REPORT_CF_DATE_ID');
+                $cfHours = env('CLICKUP_REPORT_CF_HOURS_ID');
+                $cfUserId = env('CLICKUP_REPORT_CF_USER_ID');
+                $cfUserName = env('CLICKUP_REPORT_CF_USER_NAME_ID');
+                $cfSourceTask = env('CLICKUP_REPORT_CF_SOURCE_TASK_ID');
+
+                if ($cfDate) { $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfDate, Carbon::parse($open->date)->toDateString()); }
+                if ($cfHours) { $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfHours, round($open->total_hours, 2)); }
+                if ($cfUserId) { $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfUserId, (string) $user->id); }
+                if ($cfUserName) { $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfUserName, (string) $user->name); }
+                if ($cfSourceTask) { $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfSourceTask, (string) ($open->task?->clickup_task_id ?? '')); }
+            }
+        }
+
         return response()->json($open);
     }
 
