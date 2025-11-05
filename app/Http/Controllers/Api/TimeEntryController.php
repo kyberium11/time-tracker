@@ -396,11 +396,15 @@ class TimeEntryController extends Controller
             $totalMins = round($durationSeconds / 60, 3); // minutes with second-level precision
             $notes = 'Time Tracker: +' . round($durationSeconds / 3600, 2) . 'h by ' . $user->name . ' (' . $start->clone()->setTimezone($displayTz)->format('Y-m-d H:i:s') . ' – ' . $end->clone()->setTimezone($displayTz)->format('Y-m-d H:i:s') . ' ' . $displayTz . ')';
 
+            // Since these CFs are text fields now, store human-readable timestamps
+            $timeInText = $start->clone()->setTimezone($displayTz)->format('Y-m-d H:i:s') . ' ' . $displayTz;
+            $timeOutText = $end->clone()->setTimezone($displayTz)->format('Y-m-d H:i:s') . ' ' . $displayTz;
+
             $customFields = [];
             if ($cfTaskId) { $customFields[] = ['id' => (string) $cfTaskId, 'value' => $clickupTaskId]; }
             if ($cfUser) { $customFields[] = ['id' => (string) $cfUser, 'value' => (string) $user->name]; }
-            if ($cfTimeIn) { $customFields[] = ['id' => (string) $cfTimeIn, 'value' => $timeInMs]; }
-            if ($cfTimeOut) { $customFields[] = ['id' => (string) $cfTimeOut, 'value' => $timeOutMs]; }
+            if ($cfTimeIn) { $customFields[] = ['id' => (string) $cfTimeIn, 'value' => $timeInText]; }
+            if ($cfTimeOut) { $customFields[] = ['id' => (string) $cfTimeOut, 'value' => $timeOutText]; }
             if ($cfTotalMins) { $customFields[] = ['id' => (string) $cfTotalMins, 'value' => $totalMins]; }
             if ($cfNotes) { $customFields[] = ['id' => (string) $cfNotes, 'value' => $notes]; }
 
@@ -443,14 +447,14 @@ class TimeEntryController extends Controller
                 } else { $this->logActivity('clickup_report_cf_missing', 'Missing CF id for User'); }
 
                 if ($cfTimeIn) {
-                    $res = $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTimeIn, $timeInMs);
+                    $res = $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTimeIn, $timeInText);
                     if (is_array($res) && ($res['error'] ?? false)) {
                         $this->logActivity('clickup_report_cf_error', 'Failed to set Time In', ['reportTaskId' => $reportTaskId, 'field' => 'TIME_IN', 'response' => $res]);
                     }
                 } else { $this->logActivity('clickup_report_cf_missing', 'Missing CF id for Time In'); }
 
                 if ($cfTimeOut) {
-                    $res = $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTimeOut, $timeOutMs);
+                    $res = $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTimeOut, $timeOutText);
                     if (is_array($res) && ($res['error'] ?? false)) {
                         $this->logActivity('clickup_report_cf_error', 'Failed to set Time Out', ['reportTaskId' => $reportTaskId, 'field' => 'TIME_OUT', 'response' => $res]);
                     }
