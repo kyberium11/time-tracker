@@ -377,10 +377,36 @@ class TimeEntryController extends Controller
                 'End: ' . Carbon::parse($open->clock_out)->toDateTimeString(),
                 'Hours: ' . round(Carbon::parse($open->clock_in)->diffInSeconds(Carbon::parse($open->clock_out)) / 3600, 2),
             ];
+            // Prepare custom field values (also used for create-time custom_fields)
+            $cfTaskId = env('CLICKUP_REPORT_CF_TASK_ID');
+            $cfUser = env('CLICKUP_REPORT_CF_USER');
+            $cfTimeIn = env('CLICKUP_REPORT_CF_TIME_IN');
+            $cfTimeOut = env('CLICKUP_REPORT_CF_TIME_OUT');
+            $cfTotalMins = env('CLICKUP_REPORT_CF_TOTAL_MINS');
+            $cfNotes = env('CLICKUP_REPORT_CF_NOTES');
+
+            $clickupTaskId = (string) ($open->task?->clickup_task_id ?? '');
+            $start = Carbon::parse($open->clock_in);
+            $end = Carbon::parse($open->clock_out);
+            $timeInMs = $start->getTimestampMs();
+            $timeOutMs = $end->getTimestampMs();
+            $durationSeconds = max(1, $start->diffInSeconds($end));
+            $totalMins = round($durationSeconds / 60, 3); // minutes with second-level precision
+            $notes = 'Time Tracker: +' . round($durationSeconds / 3600, 2) . 'h by ' . $user->name . ' (' . $start->format('Y-m-d H:i:s') . ' – ' . $end->format('Y-m-d H:i:s') . ')';
+
+            $customFields = [];
+            if ($cfTaskId) { $customFields[] = ['id' => (string) $cfTaskId, 'value' => $clickupTaskId]; }
+            if ($cfUser) { $customFields[] = ['id' => (string) $cfUser, 'value' => (string) $user->name]; }
+            if ($cfTimeIn) { $customFields[] = ['id' => (string) $cfTimeIn, 'value' => $timeInMs]; }
+            if ($cfTimeOut) { $customFields[] = ['id' => (string) $cfTimeOut, 'value' => $timeOutMs]; }
+            if ($cfTotalMins) { $customFields[] = ['id' => (string) $cfTotalMins, 'value' => $totalMins]; }
+            if ($cfNotes) { $customFields[] = ['id' => (string) $cfNotes, 'value' => $notes]; }
+
             $createPayload = [
                 'name' => $taskName,
                 'description' => implode("\n", $descParts),
                 // Do not set status explicitly; let list default apply to avoid API errors
+                'custom_fields' => $customFields,
             ];
             $created = $clickUp->createListTask((string) $reportListId, $createPayload);
             $reportTaskId = is_array($created) ? ($created['id'] ?? null) : null;
@@ -398,24 +424,8 @@ class TimeEntryController extends Controller
                 ]);
             }
 
-            // If custom field IDs are provided, set structured values
+            // If custom field IDs are provided, set structured values (fallback if not set at creation)
             if ($reportTaskId) {
-                $cfTaskId = env('CLICKUP_REPORT_CF_TASK_ID');
-                $cfUser = env('CLICKUP_REPORT_CF_USER');
-                $cfTimeIn = env('CLICKUP_REPORT_CF_TIME_IN');
-                $cfTimeOut = env('CLICKUP_REPORT_CF_TIME_OUT');
-                $cfTotalMins = env('CLICKUP_REPORT_CF_TOTAL_MINS');
-                $cfNotes = env('CLICKUP_REPORT_CF_NOTES');
-
-                $clickupTaskId = (string) ($open->task?->clickup_task_id ?? '');
-                $start = Carbon::parse($open->clock_in);
-                $end = Carbon::parse($open->clock_out);
-                $timeInMs = $start->getTimestampMs();
-                $timeOutMs = $end->getTimestampMs();
-                $durationSeconds = max(1, $start->diffInSeconds($end));
-                $totalMins = round($durationSeconds / 60, 3); // minutes with second-level precision
-                $notes = 'Time Tracker: +' . round($durationSeconds / 3600, 2) . 'h by ' . $user->name . ' (' . $start->format('Y-m-d H:i:s') . ' – ' . $end->format('Y-m-d H:i:s') . ')';
-
                 if ($cfTaskId) {
                     $res = $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTaskId, $clickupTaskId);
                     if (is_array($res) && ($res['error'] ?? false)) {
