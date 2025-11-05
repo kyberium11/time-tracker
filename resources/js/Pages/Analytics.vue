@@ -135,21 +135,17 @@ const loadUserDaily = async () => {
         let rawWorkSeconds = 0; // total work session duration before subtracting breaks
         let totalBreakSeconds = 0;
         let firstIn: Date | null = null;
+        let lastOut: Date | null = null;
+        let firstInStr: string | null = null;
+        let lastOutStr: string | null = null;
         list.forEach((e: any) => {
             const cin = parseDateTime(e.clock_in);
             const cout = parseDateTime(e.clock_out);
-            if (cin && (!firstIn || cin < firstIn)) firstIn = cin;
+            if (cin && (!firstIn || cin < firstIn)) { firstIn = cin; firstInStr = e.clock_in_formatted || e.clock_in; }
+            if (cout && (!lastOut || cout > lastOut)) { lastOut = cout; lastOutStr = e.clock_out_formatted || e.clock_out; }
             if (cin && cout) {
                 const workDur = Math.max(0, Math.floor((cout.getTime() - cin.getTime()) / 1000));
                 rawWorkSeconds += workDur;
-                summaryRows.value.push({
-                    name: 'Work Hours',
-                    start: e.clock_in_formatted || e.clock_in,
-                    end: e.clock_out_formatted || e.clock_out,
-                    durationSeconds: workDur,
-                    breakDurationSeconds: 0,
-                    notes: '-'
-                });
             }
             const bs = parseDateTime((e as any).break_start);
             const be = parseDateTime((e as any).break_end);
@@ -183,6 +179,18 @@ const loadUserDaily = async () => {
             const manilaMinutes = (firstIn as Date).getUTCMinutes();
             status = (manilaHours < 8 || (manilaHours === 8 && manilaMinutes <= 30)) ? 'Perfect' : 'Late';
         }
+        // Add a single Work Hours row representing the Time Out event (overall shift)
+        if (firstIn && lastOut && firstInStr && lastOutStr) {
+            summaryRows.value.unshift({
+                name: 'Work Hours',
+                start: firstInStr,
+                end: lastOutStr,
+                durationSeconds: netWork,
+                breakDurationSeconds: 0,
+                notes: '-'
+            });
+        }
+
         dailyTotals.value = { workSeconds: netWork, breakSeconds: totalBreakSeconds, lunchSeconds: 0, tasksCount: summaryRows.value.length, status, overtimeSeconds: overtime };
     } catch (e) {
         console.error('Error loading user daily analytics', e);
