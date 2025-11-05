@@ -1,0 +1,1 @@
+import{_ as s}from"./_plugin-vue_export-helper-DlAUqK2U.js";import{c as o,b as t,y as c,f as r}from"./app-DoSZCWWV.js";const a={},n={class:"flex min-h-screen flex-col"},l={class:"flex-1"};function _(e,f){return r(),o("div",n,[t("div",l,[c(e.$slots,"default")])])}const m=s(a,[["render",_]]);export{m as G};

@@ -147,6 +147,21 @@ const loadUserDaily = async () => {
                 const workDur = Math.max(0, Math.floor((cout.getTime() - cin.getTime()) / 1000));
                 rawWorkSeconds += workDur;
             }
+            // Include task time entries as their own rows if present
+            if ((e as any).task && (((e as any).task.title) || ((e as any).task.name))) {
+                const taskName = ((e as any).task.title) || ((e as any).task.name);
+                if (cin && cout) {
+                    const taskDur = Math.max(0, Math.floor((cout.getTime() - cin.getTime()) / 1000));
+                    summaryRows.value.push({
+                        name: taskName,
+                        start: e.clock_in_formatted || e.clock_in,
+                        end: e.clock_out_formatted || e.clock_out,
+                        durationSeconds: taskDur,
+                        breakDurationSeconds: 0,
+                        notes: '-'
+                    });
+                }
+            }
             const bs = parseDateTime((e as any).break_start);
             const be = parseDateTime((e as any).break_end);
             if (bs && be) {
