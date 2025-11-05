@@ -386,17 +386,25 @@ class TimeEntryController extends Controller
 
             // If custom field IDs are provided, set structured values
             if ($reportTaskId) {
-                $cfDate = env('CLICKUP_REPORT_CF_DATE_ID');
-                $cfHours = env('CLICKUP_REPORT_CF_HOURS_ID');
-                $cfUserId = env('CLICKUP_REPORT_CF_USER_ID');
-                $cfUserName = env('CLICKUP_REPORT_CF_USER_NAME_ID');
-                $cfSourceTask = env('CLICKUP_REPORT_CF_SOURCE_TASK_ID');
+                $cfTaskId = env('CLICKUP_REPORT_CF_TASK_ID');
+                $cfUser = env('CLICKUP_REPORT_CF_USER');
+                $cfTimeIn = env('CLICKUP_REPORT_CF_TIME_IN');
+                $cfTimeOut = env('CLICKUP_REPORT_CF_TIME_OUT');
+                $cfTotalMins = env('CLICKUP_REPORT_CF_TOTAL_MINS');
+                $cfNotes = env('CLICKUP_REPORT_CF_NOTES');
 
-                if ($cfDate) { $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfDate, Carbon::parse($open->date)->toDateString()); }
-                if ($cfHours) { $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfHours, round($open->total_hours, 2)); }
-                if ($cfUserId) { $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfUserId, (string) $user->id); }
-                if ($cfUserName) { $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfUserName, (string) $user->name); }
-                if ($cfSourceTask) { $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfSourceTask, (string) ($open->task?->clickup_task_id ?? '')); }
+                $clickupTaskId = (string) ($open->task?->clickup_task_id ?? '');
+                $timeInMs = Carbon::parse($open->clock_in)->getTimestampMs();
+                $timeOutMs = Carbon::parse($open->clock_out)->getTimestampMs();
+                $totalMins = (int) round(($open->total_hours ?? 0) * 60);
+                $notes = 'Time Tracker: +' . round($open->total_hours, 2) . 'h by ' . $user->name . ' (' . Carbon::parse($open->clock_in)->format('Y-m-d H:i') . ' – ' . Carbon::parse($open->clock_out)->format('Y-m-d H:i') . ')';
+
+                if ($cfTaskId) { $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTaskId, $clickupTaskId); }
+                if ($cfUser) { $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfUser, (string) $user->name); }
+                if ($cfTimeIn) { $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTimeIn, $timeInMs); }
+                if ($cfTimeOut) { $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTimeOut, $timeOutMs); }
+                if ($cfTotalMins) { $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTotalMins, $totalMins); }
+                if ($cfNotes) { $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfNotes, $notes); }
             }
         }
 
