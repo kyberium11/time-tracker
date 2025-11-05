@@ -60,6 +60,7 @@ const summaryDate = ref('');
 const allUsers = ref<User[]>([]);
 const sessions = ref<TimeEntry[]>([]);
 const sessionsLoading = ref(false);
+const summaryRows = ref<any[]>([]);
 const dailyTotals = ref({
     workSeconds: 0,
     breakSeconds: 0,
@@ -129,25 +130,52 @@ const loadUserDaily = async () => {
         const list: TimeEntry[] = res.data?.entries || res.data || [];
         sessions.value = list;
 
-        // compute totals
-        let work = 0, brk = 0, lunch = 0, tasks = 0;
+        // Build derived rows (Work Hours and Break) and compute totals
+        summaryRows.value = [];
+        let rawWorkSeconds = 0; // total work session duration before subtracting breaks
+        let totalBreakSeconds = 0;
         let firstIn: Date | null = null;
         list.forEach((e: any) => {
             const cin = parseDateTime(e.clock_in);
             const cout = parseDateTime(e.clock_out);
             if (cin && (!firstIn || cin < firstIn)) firstIn = cin;
             if (cin && cout) {
-                let s = Math.max(0, Math.floor((cout.getTime() - cin.getTime()) / 1000));
-                const bs = parseDateTime(e.break_start); const be = parseDateTime(e.break_end);
-                if (bs && be) { const b = Math.max(0, Math.floor((be.getTime() - bs.getTime()) / 1000)); brk += b; s -= b; }
-                const ls = parseDateTime(e.lunch_start); const le = parseDateTime(e.lunch_end);
-                if (ls && le) { const l = Math.max(0, Math.floor((le.getTime() - ls.getTime()) / 1000)); lunch += l; s -= l; }
-                work += Math.max(0, s);
+                const workDur = Math.max(0, Math.floor((cout.getTime() - cin.getTime()) / 1000));
+                rawWorkSeconds += workDur;
+                summaryRows.value.push({
+                    name: 'Work Hours',
+                    start: e.clock_in_formatted || e.clock_in,
+                    end: e.clock_out_formatted || e.clock_out,
+                    durationSeconds: workDur,
+                    breakDurationSeconds: 0,
+                    notes: '-'
+                });
             }
-            if (e.task && (e.task.title || e.task.name)) tasks += 1;
+            const bs = parseDateTime((e as any).break_start);
+            const be = parseDateTime((e as any).break_end);
+            if (bs && be) {
+                const b = Math.max(0, Math.floor((be.getTime() - bs.getTime()) / 1000));
+                totalBreakSeconds += b;
+                summaryRows.value.push({
+                    name: 'Break',
+                    start: (e as any).break_start_formatted || (e as any).break_start,
+                    end: (e as any).break_end_formatted || (e as any).break_end,
+                    durationSeconds: b,
+                    breakDurationSeconds: b,
+                    notes: '-'
+                });
+            }
         });
+        // Sort derived rows by start time
+        summaryRows.value.sort((a, b) => {
+            const da = new Date(a.start).getTime();
+            const db = new Date(b.start).getTime();
+            return (isNaN(da) ? 0 : da) - (isNaN(db) ? 0 : db);
+        });
+
         const eight = 8 * 3600;
-        const overtime = Math.max(0, work - eight);
+        const netWork = Math.max(0, rawWorkSeconds - totalBreakSeconds);
+        const overtime = Math.max(0, netWork - eight);
         let status = 'No Entry';
         if (firstIn) {
             // Compare using Manila local time 08:30
@@ -155,7 +183,7 @@ const loadUserDaily = async () => {
             const manilaMinutes = (firstIn as Date).getUTCMinutes();
             status = (manilaHours < 8 || (manilaHours === 8 && manilaMinutes <= 30)) ? 'Perfect' : 'Late';
         }
-        dailyTotals.value = { workSeconds: work, breakSeconds: brk, lunchSeconds: lunch, tasksCount: tasks, status, overtimeSeconds: overtime };
+        dailyTotals.value = { workSeconds: netWork, breakSeconds: totalBreakSeconds, lunchSeconds: 0, tasksCount: summaryRows.value.length, status, overtimeSeconds: overtime };
     } catch (e) {
         console.error('Error loading user daily analytics', e);
         sessions.value = [];
@@ -586,11 +614,10 @@ const exportUserSummaryPdf = () => {
                     <!-- Daily Summary -->
                     <div class="bg-white shadow rounded-lg p-5">
                         <h3 class="text-lg font-medium leading-6 text-gray-900 mb-4">Daily Summary</h3>
-                        <div class="grid gap-4 sm:grid-cols-3 lg:grid-cols-6 text-sm">
+                        <div class="grid gap-4 sm:grid-cols-3 lg:grid-cols-5 text-sm">
                             <div><div class="text-gray-500">🕒 Time In Hours</div><div class="font-semibold">{{ formatSecondsToHHMMSS(dailyTotals.workSeconds) }}</div></div>
                             <div><div class="text-gray-500">☕ Total Breaks</div><div class="font-semibold">{{ formatSecondsToHHMMSS(dailyTotals.breakSeconds) }}</div></div>
-                            <div><div class="text-gray-500">🍱 Total Lunch</div><div class="font-semibold">{{ formatSecondsToHHMMSS(dailyTotals.lunchSeconds) }}</div></div>
-                            <div><div class="text-gray-500">📋 Tasks Done</div><div class="font-semibold">{{ dailyTotals.tasksCount }}</div></div>
+                            <div><div class="text-gray-500">📋 Entries</div><div class="font-semibold">{{ dailyTotals.tasksCount }}</div></div>
                             <div><div class="text-gray-500">⏰ Status</div><div class="font-semibold" :class="{ 'text-green-700': dailyTotals.status==='Perfect', 'text-yellow-700': dailyTotals.status==='Late', 'text-gray-700': dailyTotals.status==='No Entry' }">{{ dailyTotals.status }}</div></div>
                             <div><div class="text-gray-500">⚡ Overtime</div><div class="font-semibold">{{ formatSecondsToHHMMSS(dailyTotals.overtimeSeconds) }}</div></div>
                         </div>
@@ -611,15 +638,15 @@ const exportUserSummaryPdf = () => {
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-gray-200">
-                                    <tr v-for="e in sessions" :key="e.id">
-                                        <td class="px-4 py-4 text-sm text-gray-900">{{ e.task?.title || e.task?.name || 'Work' }}</td>
-                                        <td class="px-4 py-4 text-sm text-gray-500">{{ formatTime(e.clock_in_formatted || e.clock_in) }}</td>
-                                        <td class="px-4 py-4 text-sm text-gray-500">{{ formatTime(e.clock_out_formatted || e.clock_out) }}</td>
-                                        <td class="px-4 py-4 text-sm text-gray-900 font-semibold">{{ computeEntryHHMMSS(e) }}</td>
-                                        <td class="px-4 py-4 text-sm text-gray-500">{{ (()=>{ const bs=parseDateTime((e as any).break_start), be=parseDateTime((e as any).break_end); return (bs&&be)? formatSecondsToHHMMSS(Math.max(0, Math.floor((be.getTime()-bs.getTime())/1000))): '00:00:00' })() }}</td>
-                                        <td class="px-4 py-4 text-sm text-gray-500">{{ (e as any).lunch_start && (e as any).lunch_end ? 'Lunch' : '-' }}</td>
+                                    <tr v-for="(row, idx) in summaryRows" :key="idx">
+                                        <td class="px-4 py-4 text-sm text-gray-900">{{ row.name }}</td>
+                                        <td class="px-4 py-4 text-sm text-gray-500">{{ formatTime(row.start) }}</td>
+                                        <td class="px-4 py-4 text-sm text-gray-500">{{ formatTime(row.end) }}</td>
+                                        <td class="px-4 py-4 text-sm text-gray-900 font-semibold">{{ formatSecondsToHHMMSS(row.durationSeconds) }}</td>
+                                        <td class="px-4 py-4 text-sm text-gray-500">{{ formatSecondsToHHMMSS(row.breakDurationSeconds || 0) }}</td>
+                                        <td class="px-4 py-4 text-sm text-gray-500">{{ row.notes || '-' }}</td>
                                     </tr>
-                                    <tr v-if="sessions.length === 0 && !sessionsLoading">
+                                    <tr v-if="summaryRows.length === 0 && !sessionsLoading">
                                         <td colspan="6" class="px-4 py-4 text-center text-sm text-gray-500">No entries for selected day</td>
                                     </tr>
                                 </tbody>
