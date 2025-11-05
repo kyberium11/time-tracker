@@ -356,7 +356,7 @@ class ClickUpService
         $url = 'https://api.clickup.com/api/v2/list/' . $listId . '/task';
         try {
             $response = Http::withHeaders($headers)
-                ->timeout(5)
+                ->timeout(10)
                 ->post($url, $data);
 
             if ($response->failed()) {

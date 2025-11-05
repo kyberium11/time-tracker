@@ -423,6 +423,21 @@ class TimeEntryController extends Controller
                     'payload' => $createPayload,
                     'response' => $created,
                 ]);
+                // Retry with minimal payload (name/description only); some workspaces reject custom_fields at creation
+                $retryPayload = [ 'name' => $taskName, 'description' => implode("\n", $descParts) ];
+                $retry = $clickUp->createListTask((string) $reportListId, $retryPayload);
+                $reportTaskId = is_array($retry) ? ($retry['id'] ?? null) : null;
+                if ($reportTaskId) {
+                    $this->logActivity('clickup_report_row_retry_created', 'Created report row on retry without custom_fields', [
+                        'listId' => (string) $reportListId,
+                        'reportTaskId' => (string) $reportTaskId,
+                    ]);
+                } else {
+                    $this->logActivity('clickup_report_row_retry_failed', 'Retry create failed', [
+                        'listId' => (string) $reportListId,
+                        'response' => $retry,
+                    ]);
+                }
             } else {
                 $this->logActivity('clickup_report_row_created', 'Created report row', [
                     'listId' => (string) $reportListId,
