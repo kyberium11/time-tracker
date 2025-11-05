@@ -226,19 +226,43 @@ class AnalyticsController extends Controller
             ->get();
 
         // Enrich per-entry precise seconds and HMS for frontend reliability
-        $entries = $entries->map(function ($entry) {
-            $clockIn = $entry->clock_in ? \Carbon\Carbon::parse($entry->clock_in) : null;
-            $clockOut = $entry->clock_out ? \Carbon\Carbon::parse($entry->clock_out) : null;
+        // Format times in Asia/Manila timezone
+        $timezone = 'Asia/Manila';
+        $entries = $entries->map(function ($entry) use ($timezone) {
+            $clockIn = $entry->clock_in ? \Carbon\Carbon::parse($entry->clock_in)->setTimezone($timezone) : null;
+            $clockOut = $entry->clock_out ? \Carbon\Carbon::parse($entry->clock_out)->setTimezone($timezone) : null;
+            $breakStart = $entry->break_start ? \Carbon\Carbon::parse($entry->break_start)->setTimezone($timezone) : null;
+            $breakEnd = $entry->break_end ? \Carbon\Carbon::parse($entry->break_end)->setTimezone($timezone) : null;
+            $lunchStart = $entry->lunch_start ? \Carbon\Carbon::parse($entry->lunch_start)->setTimezone($timezone) : null;
+            $lunchEnd = $entry->lunch_end ? \Carbon\Carbon::parse($entry->lunch_end)->setTimezone($timezone) : null;
+            
+            // Format times for display in Asia/Manila
+            $entry->clock_in_formatted = $clockIn ? $clockIn->format('Y-m-d H:i:s') : null;
+            $entry->clock_out_formatted = $clockOut ? $clockOut->format('Y-m-d H:i:s') : null;
+            $entry->break_start_formatted = $breakStart ? $breakStart->format('Y-m-d H:i:s') : null;
+            $entry->break_end_formatted = $breakEnd ? $breakEnd->format('Y-m-d H:i:s') : null;
+            $entry->lunch_start_formatted = $lunchStart ? $lunchStart->format('Y-m-d H:i:s') : null;
+            $entry->lunch_end_formatted = $lunchEnd ? $lunchEnd->format('Y-m-d H:i:s') : null;
+            
             $seconds = 0;
             if ($clockIn && $clockOut) {
-                $seconds = max(0, $clockOut->diffInSeconds($clockIn));
-                if ($entry->break_start && $entry->break_end) {
-                    $seconds -= max(0, \Carbon\Carbon::parse($entry->break_end)->diffInSeconds(\Carbon\Carbon::parse($entry->break_start)));
+                // Use original UTC timestamps for accurate duration calculation
+                $clockInUtc = $entry->clock_in ? \Carbon\Carbon::parse($entry->clock_in) : null;
+                $clockOutUtc = $entry->clock_out ? \Carbon\Carbon::parse($entry->clock_out) : null;
+                if ($clockInUtc && $clockOutUtc) {
+                    $seconds = max(0, $clockOutUtc->diffInSeconds($clockInUtc));
+                    if ($entry->break_start && $entry->break_end) {
+                        $bs = \Carbon\Carbon::parse($entry->break_start);
+                        $be = \Carbon\Carbon::parse($entry->break_end);
+                        $seconds -= max(0, $be->diffInSeconds($bs));
+                    }
+                    if ($entry->lunch_start && $entry->lunch_end) {
+                        $ls = \Carbon\Carbon::parse($entry->lunch_start);
+                        $le = \Carbon\Carbon::parse($entry->lunch_end);
+                        $seconds -= max(0, $le->diffInSeconds($ls));
+                    }
+                    $seconds = max(0, $seconds);
                 }
-                if ($entry->lunch_start && $entry->lunch_end) {
-                    $seconds -= max(0, \Carbon\Carbon::parse($entry->lunch_end)->diffInSeconds(\Carbon\Carbon::parse($entry->lunch_start)));
-                }
-                $seconds = max(0, $seconds);
             }
             $h = intdiv($seconds, 3600);
             $m = intdiv($seconds % 3600, 60);
@@ -507,6 +531,278 @@ class AnalyticsController extends Controller
             ->header('Content-Disposition', 'attachment; filename="analytics_' . now()->format('Y-m-d_His') . '.html"');
     }
 
+    /**
+     * Export user summary data as CSV.
+     */
+    public function exportUserSummaryCsv(Request $request)
+    {
+        $userId = $request->input('user_id');
+        $startDate = $request->input('start_date', now()->format('Y-m-d'));
+        $endDate = $request->input('end_date', now()->format('Y-m-d'));
+        
+        if (!$userId) {
+            return response()->json(['error' => 'User ID is required'], 400);
+        }
+        
+        $user = User::find($userId);
+        if (!$user) {
+            return response()->json(['error' => 'User not found'], 404);
+        }
+        
+        $entries = TimeEntry::with(['task'])
+            ->where('user_id', $userId)
+            ->whereBetween('date', [$startDate, $endDate])
+            ->whereNotNull('clock_out')
+            ->orderBy('date', 'desc')
+            ->orderBy('clock_in', 'asc')
+            ->get();
+        
+        $timezone = 'Asia/Manila';
+        $filename = 'user_summary_' . str_replace(' ', '_', $user->name) . '_' . $startDate . '_' . $endDate . '.csv';
+        
+        $headers = [
+            'Content-Type' => 'text/csv; charset=utf-8',
+            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+        ];
+        
+        $callback = function() use ($entries, $user, $timezone) {
+            $file = fopen('php://output', 'w');
+            
+            // Add BOM for UTF-8 Excel compatibility
+            fprintf($file, chr(0xEF).chr(0xBB).chr(0xBF));
+            
+            // Headers
+            fputcsv($file, ['Task', 'Start Time', 'End Time', 'Duration', 'Break Duration', 'Notes']);
+            
+            // Data
+            foreach ($entries as $entry) {
+                $clockIn = $entry->clock_in ? \Carbon\Carbon::parse($entry->clock_in)->setTimezone($timezone) : null;
+                $clockOut = $entry->clock_out ? \Carbon\Carbon::parse($entry->clock_out)->setTimezone($timezone) : null;
+                $breakStart = $entry->break_start ? \Carbon\Carbon::parse($entry->break_start)->setTimezone($timezone) : null;
+                $breakEnd = $entry->break_end ? \Carbon\Carbon::parse($entry->break_end)->setTimezone($timezone) : null;
+                
+                $taskName = ($entry->task && ($entry->task->title || $entry->task->name)) 
+                    ? ($entry->task->title ?? $entry->task->name) 
+                    : 'Work';
+                
+                $startTime = $clockIn ? $clockIn->format('h:i A') : '--';
+                $endTime = $clockOut ? $clockOut->format('h:i A') : '--';
+                
+                // Calculate duration
+                $seconds = 0;
+                if ($entry->clock_in && $entry->clock_out) {
+                    $clockInUtc = \Carbon\Carbon::parse($entry->clock_in);
+                    $clockOutUtc = \Carbon\Carbon::parse($entry->clock_out);
+                    $seconds = max(0, $clockOutUtc->diffInSeconds($clockInUtc));
+                    if ($entry->break_start && $entry->break_end) {
+                        $bs = \Carbon\Carbon::parse($entry->break_start);
+                        $be = \Carbon\Carbon::parse($entry->break_end);
+                        $seconds -= max(0, $be->diffInSeconds($bs));
+                    }
+                    if ($entry->lunch_start && $entry->lunch_end) {
+                        $ls = \Carbon\Carbon::parse($entry->lunch_start);
+                        $le = \Carbon\Carbon::parse($entry->lunch_end);
+                        $seconds -= max(0, $le->diffInSeconds($ls));
+                    }
+                    $seconds = max(0, $seconds);
+                }
+                $h = intdiv($seconds, 3600);
+                $m = intdiv($seconds % 3600, 60);
+                $s = $seconds % 60;
+                $pad = function ($n) { return $n < 10 ? '0'.$n : (string) $n; };
+                $duration = $pad($h).':'.$pad($m).':'.$pad($s);
+                
+                // Calculate break duration
+                $breakSeconds = 0;
+                if ($entry->break_start && $entry->break_end) {
+                    $bs = \Carbon\Carbon::parse($entry->break_start);
+                    $be = \Carbon\Carbon::parse($entry->break_end);
+                    $breakSeconds = max(0, $be->diffInSeconds($bs));
+                }
+                $bh = intdiv($breakSeconds, 3600);
+                $bm = intdiv($breakSeconds % 3600, 60);
+                $bs = $breakSeconds % 60;
+                $breakDuration = $breakSeconds > 0 ? $pad($bh).':'.$pad($bm).':'.$pad($bs) : '00:00:00';
+                
+                $notes = ($entry->lunch_start && $entry->lunch_end) ? 'Lunch' : '-';
+                
+                fputcsv($file, [
+                    $taskName,
+                    $startTime,
+                    $endTime,
+                    $duration,
+                    $breakDuration,
+                    $notes,
+                ]);
+            }
+            
+            fclose($file);
+        };
+        
+        return response()->stream($callback, 200, $headers);
+    }
+    
+    /**
+     * Export user summary data as PDF.
+     */
+    public function exportUserSummaryPdf(Request $request)
+    {
+        $userId = $request->input('user_id');
+        $startDate = $request->input('start_date', now()->format('Y-m-d'));
+        $endDate = $request->input('end_date', now()->format('Y-m-d'));
+        
+        if (!$userId) {
+            return response()->json(['error' => 'User ID is required'], 400);
+        }
+        
+        $user = User::find($userId);
+        if (!$user) {
+            return response()->json(['error' => 'User not found'], 404);
+        }
+        
+        $entries = TimeEntry::with(['task'])
+            ->where('user_id', $userId)
+            ->whereBetween('date', [$startDate, $endDate])
+            ->whereNotNull('clock_out')
+            ->orderBy('date', 'desc')
+            ->orderBy('clock_in', 'asc')
+            ->get();
+        
+        $timezone = 'Asia/Manila';
+        $filename = 'user_summary_' . str_replace(' ', '_', $user->name) . '_' . $startDate . '_' . $endDate . '.html';
+        
+        // Calculate daily totals
+        $workSeconds = 0;
+        $breakSeconds = 0;
+        $lunchSeconds = 0;
+        $tasksCount = 0;
+        
+        foreach ($entries as $entry) {
+            if ($entry->clock_in && $entry->clock_out) {
+                $clockInUtc = \Carbon\Carbon::parse($entry->clock_in);
+                $clockOutUtc = \Carbon\Carbon::parse($entry->clock_out);
+                $seconds = max(0, $clockOutUtc->diffInSeconds($clockInUtc));
+                $workSeconds += $seconds;
+                
+                if ($entry->break_start && $entry->break_end) {
+                    $bs = \Carbon\Carbon::parse($entry->break_start);
+                    $be = \Carbon\Carbon::parse($entry->break_end);
+                    $breakSeconds += max(0, $be->diffInSeconds($bs));
+                    $workSeconds -= max(0, $be->diffInSeconds($bs));
+                }
+                
+                if ($entry->lunch_start && $entry->lunch_end) {
+                    $ls = \Carbon\Carbon::parse($entry->lunch_start);
+                    $le = \Carbon\Carbon::parse($entry->lunch_end);
+                    $lunchSeconds += max(0, $le->diffInSeconds($ls));
+                    $workSeconds -= max(0, $le->diffInSeconds($ls));
+                }
+            }
+            if ($entry->task && ($entry->task->title || $entry->task->name)) {
+                $tasksCount++;
+            }
+        }
+        
+        $formatSeconds = function($sec) {
+            $h = intdiv($sec, 3600);
+            $m = intdiv($sec % 3600, 60);
+            $s = $sec % 60;
+            $pad = function ($n) { return $n < 10 ? '0'.$n : (string) $n; };
+            return $pad($h).':'.$pad($m).':'.$pad($s);
+        };
+        
+        $html = '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>User Summary Report</title>';
+        $html .= '<style>
+            body { font-family: Arial, sans-serif; margin: 20px; }
+            h1 { color: #333; }
+            h2 { color: #666; margin-top: 20px; }
+            .summary { background: #f5f5f5; padding: 15px; margin-bottom: 20px; border-radius: 5px; }
+            .summary-item { display: inline-block; margin-right: 30px; }
+            table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+            th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+            th { background-color: #4CAF50; color: white; }
+            tr:nth-child(even) { background-color: #f2f2f2; }
+        </style></head><body>';
+        $html .= '<h1>User Summary Report</h1>';
+        $html .= '<p><strong>User:</strong> ' . htmlspecialchars($user->name) . ' (' . htmlspecialchars($user->email) . ')</p>';
+        $html .= '<p><strong>Period:</strong> ' . htmlspecialchars($startDate) . ' to ' . htmlspecialchars($endDate) . '</p>';
+        $html .= '<div class="summary">';
+        $html .= '<div class="summary-item"><strong>Time In Hours:</strong> ' . $formatSeconds($workSeconds) . '</div>';
+        $html .= '<div class="summary-item"><strong>Total Breaks:</strong> ' . $formatSeconds($breakSeconds) . '</div>';
+        $html .= '<div class="summary-item"><strong>Total Lunch:</strong> ' . $formatSeconds($lunchSeconds) . '</div>';
+        $html .= '<div class="summary-item"><strong>Tasks Done:</strong> ' . $tasksCount . '</div>';
+        $html .= '</div>';
+        $html .= '<h2>Task Details</h2>';
+        $html .= '<table><thead><tr><th>Task</th><th>Start Time</th><th>End Time</th><th>Duration</th><th>Break Duration</th><th>Notes</th></tr></thead><tbody>';
+        
+        foreach ($entries as $entry) {
+            $clockIn = $entry->clock_in ? \Carbon\Carbon::parse($entry->clock_in)->setTimezone($timezone) : null;
+            $clockOut = $entry->clock_out ? \Carbon\Carbon::parse($entry->clock_out)->setTimezone($timezone) : null;
+            $breakStart = $entry->break_start ? \Carbon\Carbon::parse($entry->break_start)->setTimezone($timezone) : null;
+            $breakEnd = $entry->break_end ? \Carbon\Carbon::parse($entry->break_end)->setTimezone($timezone) : null;
+            
+            $taskName = ($entry->task && ($entry->task->title || $entry->task->name)) 
+                ? htmlspecialchars($entry->task->title ?? $entry->task->name) 
+                : 'Work';
+            
+            $startTime = $clockIn ? $clockIn->format('h:i A') : '--';
+            $endTime = $clockOut ? $clockOut->format('h:i A') : '--';
+            
+            // Calculate duration
+            $seconds = 0;
+            if ($entry->clock_in && $entry->clock_out) {
+                $clockInUtc = \Carbon\Carbon::parse($entry->clock_in);
+                $clockOutUtc = \Carbon\Carbon::parse($entry->clock_out);
+                $seconds = max(0, $clockOutUtc->diffInSeconds($clockInUtc));
+                if ($entry->break_start && $entry->break_end) {
+                    $bs = \Carbon\Carbon::parse($entry->break_start);
+                    $be = \Carbon\Carbon::parse($entry->break_end);
+                    $seconds -= max(0, $be->diffInSeconds($bs));
+                }
+                if ($entry->lunch_start && $entry->lunch_end) {
+                    $ls = \Carbon\Carbon::parse($entry->lunch_start);
+                    $le = \Carbon\Carbon::parse($entry->lunch_end);
+                    $seconds -= max(0, $le->diffInSeconds($ls));
+                }
+                $seconds = max(0, $seconds);
+            }
+            $h = intdiv($seconds, 3600);
+            $m = intdiv($seconds % 3600, 60);
+            $s = $seconds % 60;
+            $pad = function ($n) { return $n < 10 ? '0'.$n : (string) $n; };
+            $duration = $pad($h).':'.$pad($m).':'.$pad($s);
+            
+            // Calculate break duration
+            $breakSeconds = 0;
+            if ($entry->break_start && $entry->break_end) {
+                $bs = \Carbon\Carbon::parse($entry->break_start);
+                $be = \Carbon\Carbon::parse($entry->break_end);
+                $breakSeconds = max(0, $be->diffInSeconds($bs));
+            }
+            $bh = intdiv($breakSeconds, 3600);
+            $bm = intdiv($breakSeconds % 3600, 60);
+            $bs = $breakSeconds % 60;
+            $breakDuration = $breakSeconds > 0 ? $pad($bh).':'.$pad($bm).':'.$pad($bs) : '00:00:00';
+            
+            $notes = ($entry->lunch_start && $entry->lunch_end) ? 'Lunch' : '-';
+            
+            $html .= '<tr>';
+            $html .= '<td>' . $taskName . '</td>';
+            $html .= '<td>' . $startTime . '</td>';
+            $html .= '<td>' . $endTime . '</td>';
+            $html .= '<td>' . $duration . '</td>';
+            $html .= '<td>' . $breakDuration . '</td>';
+            $html .= '<td>' . $notes . '</td>';
+            $html .= '</tr>';
+        }
+        
+        $html .= '</tbody></table></body></html>';
+        
+        return response($html)
+            ->header('Content-Type', 'text/html; charset=utf-8')
+            ->header('Content-Disposition', 'attachment; filename="' . $filename . '"');
+    }
+    
     /**
      * Calculate duration between two times in minutes.
      */

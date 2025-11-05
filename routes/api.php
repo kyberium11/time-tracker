@@ -77,6 +77,8 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/analytics', [AnalyticsController::class, 'index']);
         Route::get('/analytics/export/csv', [AnalyticsController::class, 'exportCsv']);
         Route::get('/analytics/export/pdf', [AnalyticsController::class, 'exportPdf']);
+        Route::get('/analytics/user-summary/export/csv', [AnalyticsController::class, 'exportUserSummaryCsv']);
+        Route::get('/analytics/user-summary/export/pdf', [AnalyticsController::class, 'exportUserSummaryPdf']);
     });
 });
 

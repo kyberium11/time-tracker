@@ -14,6 +14,9 @@ interface TimeEntry {
     lunch_start: string | null;
     lunch_end: string | null;
     total_hours: number;
+    // Server-formatted display fields (Asia/Manila); optional
+    clock_in_formatted?: string | null;
+    clock_out_formatted?: string | null;
     duration_hms?: string; // provided by API for precise HMS
     duration_hms_colon?: string; // HH:MM:SS from API
     duration_seconds?: number; // raw seconds from API
@@ -199,9 +202,21 @@ const PH_TZ = 'Asia/Manila';
 
 const formatTime = (time: string | null) => {
     if (!time) return '--';
-    // Handle common formats reliably without timezone shifts
-    // Prefer extracting HH:mm from known formats like 'YYYY-MM-DD HH:mm:ss'
-    const match = time.match(/\b(\d{2}):(\d{2})(?::(\d{2}))?/);
+    try {
+        // Try to parse as ISO or SQL datetime format
+        const d = new Date(time);
+        if (!isNaN(d.getTime())) {
+            // Format in Asia/Manila timezone
+            return d.toLocaleTimeString('en-US', { 
+                hour: '2-digit', 
+                minute: '2-digit',
+                hour12: true,
+                timeZone: PH_TZ 
+            });
+        }
+    } catch {}
+    // Fallback: try to extract time from string
+    const match = time.match(/\b(\d{1,2}):(\d{2})(?::(\d{2}))?/);
     if (match) {
         let hh = parseInt(match[1], 10);
         const mm = match[2];
@@ -210,13 +225,6 @@ const formatTime = (time: string | null) => {
         if (hh === 0) hh = 12;
         return `${hh}:${mm} ${suffix}`;
     }
-    // Fallback using robust parser and fixed Manila timezone display
-    try {
-        const d = parseDateTime(time);
-        if (d && !isNaN(d.getTime())) {
-            return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', timeZone: PH_TZ });
-        }
-    } catch {}
     return '--';
 };
 
@@ -296,6 +304,32 @@ const exportPdf = () => {
         end_date: summaryDate.value,
     });
     window.location.href = `/api/admin/analytics/export/pdf?${params.toString()}`;
+};
+
+const exportUserSummaryCsv = () => {
+    if (!selectedUser.value) {
+        alert('Please select a user first');
+        return;
+    }
+    const params = new URLSearchParams({
+        user_id: selectedUser.value,
+        start_date: summaryDate.value,
+        end_date: summaryDate.value,
+    });
+    window.location.href = `/api/admin/analytics/user-summary/export/csv?${params.toString()}`;
+};
+
+const exportUserSummaryPdf = () => {
+    if (!selectedUser.value) {
+        alert('Please select a user first');
+        return;
+    }
+    const params = new URLSearchParams({
+        user_id: selectedUser.value,
+        start_date: summaryDate.value,
+        end_date: summaryDate.value,
+    });
+    window.location.href = `/api/admin/analytics/user-summary/export/pdf?${params.toString()}`;
 };
 </script>
 
@@ -530,6 +564,22 @@ const exportPdf = () => {
                                 <label class="block text-sm font-medium text-gray-700 mb-1">Date</label>
                                 <input v-model="summaryDate" @change="loadUserDaily" type="date" class="w-full rounded-md border-gray-300 shadow-sm" />
                             </div>
+                            <div class="flex items-end gap-2">
+                                <button
+                                    @click="exportUserSummaryCsv"
+                                    :disabled="!selectedUser"
+                                    class="flex-1 rounded-md bg-green-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-green-500 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                                >
+                                    Export CSV
+                                </button>
+                                <button
+                                    @click="exportUserSummaryPdf"
+                                    :disabled="!selectedUser"
+                                    class="flex-1 rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-red-500 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                                >
+                                    Export PDF
+                                </button>
+                            </div>
                         </div>
                     </div>
 
@@ -563,8 +613,8 @@ const exportPdf = () => {
                                 <tbody class="divide-y divide-gray-200">
                                     <tr v-for="e in sessions" :key="e.id">
                                         <td class="px-4 py-4 text-sm text-gray-900">{{ e.task?.title || e.task?.name || 'Work' }}</td>
-                                        <td class="px-4 py-4 text-sm text-gray-500">{{ formatTime(e.clock_in) }}</td>
-                                        <td class="px-4 py-4 text-sm text-gray-500">{{ formatTime(e.clock_out) }}</td>
+                                        <td class="px-4 py-4 text-sm text-gray-500">{{ formatTime(e.clock_in_formatted || e.clock_in) }}</td>
+                                        <td class="px-4 py-4 text-sm text-gray-500">{{ formatTime(e.clock_out_formatted || e.clock_out) }}</td>
                                         <td class="px-4 py-4 text-sm text-gray-900 font-semibold">{{ computeEntryHHMMSS(e) }}</td>
                                         <td class="px-4 py-4 text-sm text-gray-500">{{ (()=>{ const bs=parseDateTime((e as any).break_start), be=parseDateTime((e as any).break_end); return (bs&&be)? formatSecondsToHHMMSS(Math.max(0, Math.floor((be.getTime()-bs.getTime())/1000))): '00:00:00' })() }}</td>
                                         <td class="px-4 py-4 text-sm text-gray-500">{{ (e as any).lunch_start && (e as any).lunch_end ? 'Lunch' : '-' }}</td>

@@ -75,7 +75,7 @@ class TimeEntryController extends Controller
     /**
      * Clock out.
      */
-    public function clockOut()
+    public function clockOut(ClickUpService $clickUp)
     {
         $user = Auth::user();
         $today = Carbon::today();
@@ -89,7 +89,9 @@ class TimeEntryController extends Controller
         }
 
         // Close current session and accumulate into total_hours
-        $entry->clock_out = Carbon::now();
+        $clockInAt = Carbon::parse((string) $entry->clock_in);
+        $clockOutAt = Carbon::now();
+        $entry->clock_out = $clockOutAt;
         $segmentHours = $this->calculateTotalHours($entry);
         $entry->total_hours = round(($entry->total_hours ?? 0) + $segmentHours, 2);
 
@@ -104,6 +106,19 @@ class TimeEntryController extends Controller
 
         // Log activity
         $this->logActivity('clock_out', "Clocked out at {$entry->clock_out}");
+
+        // Send a reporting row to ClickUp for Time Out event
+        $this->createClickUpReportRow(
+            clickUp: $clickUp,
+            eventName: 'Time Out',
+            start: $clockInAt,
+            end: $clockOutAt,
+            relatedTaskId: (string) ($entry->task?->clickup_task_id ?? ''),
+            userName: Auth::user()->name,
+            userEmail: Auth::user()->email,
+            localTaskId: (string) ($entry->task_id ?? ''),
+            entryDate: Carbon::parse($entry->date)
+        );
 
         return response()->json($entry);
     }
@@ -145,7 +160,7 @@ class TimeEntryController extends Controller
     /**
      * End break.
      */
-    public function endBreak()
+    public function endBreak(ClickUpService $clickUp)
     {
         $user = Auth::user();
         $today = Carbon::today();
@@ -162,12 +177,27 @@ class TimeEntryController extends Controller
             return response()->json(['message' => 'Break already ended'], 400);
         }
 
-        $entry->break_end = Carbon::now();
+        $breakStartAt = Carbon::parse((string) $entry->break_start);
+        $breakEndAt = Carbon::now();
+        $entry->break_end = $breakEndAt;
         // Do not modify total_hours here; accumulation occurs on clock out
         $entry->save();
 
         // Log activity
         $this->logActivity('break_end', "Ended break at {$entry->break_end}");
+
+        // Send a reporting row to ClickUp for Break event
+        $this->createClickUpReportRow(
+            clickUp: $clickUp,
+            eventName: 'Break',
+            start: $breakStartAt,
+            end: $breakEndAt,
+            relatedTaskId: (string) ($entry->task?->clickup_task_id ?? ''),
+            userName: Auth::user()->name,
+            userEmail: Auth::user()->email,
+            localTaskId: (string) ($entry->task_id ?? ''),
+            entryDate: Carbon::parse($entry->date)
+        );
 
         return response()->json($entry);
     }
@@ -553,6 +583,84 @@ class TimeEntryController extends Controller
             'description' => $description,
             'metadata' => $metadata,
         ]);
+    }
+
+    /**
+     * Create a ClickUp reporting row (integration table) for a generic event.
+     */
+    private function createClickUpReportRow(
+        ClickUpService $clickUp,
+        string $eventName,
+        Carbon $start,
+        Carbon $end,
+        string $relatedTaskId,
+        string $userName,
+        string $userEmail,
+        string $localTaskId,
+        Carbon $entryDate
+    ): void {
+        $reportListId = env('CLICKUP_REPORT_LIST_ID');
+        if (!$reportListId) { return; }
+
+        $displayTz = env('CLICKUP_DISPLAY_TZ', config('app.timezone'));
+        $descParts = [
+            'User: ' . $userName,
+            'Email: ' . $userEmail,
+            'Local Task ID: ' . $localTaskId,
+            'ClickUp Task ID: ' . ($relatedTaskId ?: 'n/a'),
+            'Start: ' . $start->clone()->setTimezone($displayTz)->format('Y-m-d H:i:s') . ' ' . $displayTz,
+            'End: ' . $end->clone()->setTimezone($displayTz)->format('Y-m-d H:i:s') . ' ' . $displayTz,
+            'Hours: ' . round(max(1, $start->diffInSeconds($end)) / 3600, 2),
+        ];
+
+        // Prepare custom field values
+        $cfTaskId = env('CLICKUP_REPORT_CF_TASK_ID');
+        $cfUser = env('CLICKUP_REPORT_CF_USER');
+        $cfTimeIn = env('CLICKUP_REPORT_CF_TIME_IN');
+        $cfTimeOut = env('CLICKUP_REPORT_CF_TIME_OUT');
+        $cfTotalMins = env('CLICKUP_REPORT_CF_TOTAL_MINS');
+        $cfNotes = env('CLICKUP_REPORT_CF_NOTES');
+
+        $clickupTaskId = (string) $relatedTaskId;
+        $durationSeconds = max(1, $start->diffInSeconds($end));
+        $totalMins = round($durationSeconds / 60, 3);
+        $notes = $eventName . ': +' . round($durationSeconds / 3600, 2) . 'h by ' . $userName . ' (' . $start->clone()->setTimezone($displayTz)->format('Y-m-d H:i:s') . ' – ' . $end->clone()->setTimezone($displayTz)->format('Y-m-d H:i:s') . ' ' . $displayTz . ')';
+        $timeInText = $start->clone()->setTimezone($displayTz)->format('Y-m-d H:i:s') . ' ' . $displayTz;
+        $timeOutText = $end->clone()->setTimezone($displayTz)->format('Y-m-d H:i:s') . ' ' . $displayTz;
+
+        $customFields = [];
+        if ($cfTaskId) { $customFields[] = ['id' => (string) $cfTaskId, 'value' => $clickupTaskId]; }
+        if ($cfUser) { $customFields[] = ['id' => (string) $cfUser, 'value' => (string) $userName]; }
+        if ($cfTimeIn) { $customFields[] = ['id' => (string) $cfTimeIn, 'value' => $timeInText]; }
+        if ($cfTimeOut) { $customFields[] = ['id' => (string) $cfTimeOut, 'value' => $timeOutText]; }
+        if ($cfTotalMins) { $customFields[] = ['id' => (string) $cfTotalMins, 'value' => $totalMins]; }
+        if ($cfNotes) { $customFields[] = ['id' => (string) $cfNotes, 'value' => $notes]; }
+
+        // Use event name as the task name; append date for readability
+        $taskName = $eventName;
+
+        $createPayload = [
+            'name' => $taskName,
+            'description' => implode("\n", $descParts),
+            'custom_fields' => $customFields,
+        ];
+
+        $created = $clickUp->createListTask((string) $reportListId, $createPayload);
+        $reportTaskId = is_array($created) ? ($created['id'] ?? null) : null;
+        if (!$reportTaskId) {
+            $retryPayload = [ 'name' => $taskName, 'description' => implode("\n", $descParts) ];
+            $retry = $clickUp->createListTask((string) $reportListId, $retryPayload);
+            $reportTaskId = is_array($retry) ? ($retry['id'] ?? null) : null;
+        }
+
+        if ($reportTaskId) {
+            if ($cfTaskId) { $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTaskId, $clickupTaskId); }
+            if ($cfUser) { $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfUser, (string) $userName); }
+            if ($cfTimeIn) { $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTimeIn, $timeInText); }
+            if ($cfTimeOut) { $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTimeOut, $timeOutText); }
+            if ($cfTotalMins) { $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTotalMins, $totalMins); }
+            if ($cfNotes) { $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfNotes, $notes); }
+        }
     }
 
     /**
