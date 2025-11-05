@@ -365,12 +365,14 @@ class TimeEntryController extends Controller
         // Create a reporting row in the dedicated ClickUp List (integration table)
         $reportListId = env('CLICKUP_REPORT_LIST_ID');
         if ($reportListId) {
-            $taskName = Carbon::parse($open->date)->toDateString() . ' | ' . ($open->task?->name ?? 'Task #' . $open->task_id) . ' | ' . round($open->total_hours, 2) . 'h';
+            $clickupTaskId = (string) ($open->task?->clickup_task_id ?? '');
+            $clickupTaskUrl = $clickupTaskId ? ('https://app.clickup.com/t/' . $clickupTaskId) : (Carbon::parse($open->date)->toDateString() . ' | Task #' . $open->task_id);
+            $taskName = $clickupTaskUrl;
             $descParts = [
                 'User: ' . $user->name,
                 'Email: ' . $user->email,
                 'Local Task ID: ' . $open->task_id,
-                'ClickUp Task ID: ' . ($open->task?->clickup_task_id ?? 'n/a'),
+                'ClickUp Task ID: ' . ($clickupTaskId ?: 'n/a'),
                 'Start: ' . Carbon::parse($open->clock_in)->toDateTimeString(),
                 'End: ' . Carbon::parse($open->clock_out)->toDateTimeString(),
                 'Hours: ' . round($open->total_hours, 2),
@@ -405,17 +407,19 @@ class TimeEntryController extends Controller
                 $cfTotalMins = env('CLICKUP_REPORT_CF_TOTAL_MINS');
                 $cfNotes = env('CLICKUP_REPORT_CF_NOTES');
 
-                $clickupTaskId = (string) ($open->task?->clickup_task_id ?? '');
-                $timeInMs = Carbon::parse($open->clock_in)->getTimestampMs();
-                $timeOutMs = Carbon::parse($open->clock_out)->getTimestampMs();
-                $totalMins = (int) round(($open->total_hours ?? 0) * 60);
-                $notes = 'Time Tracker: +' . round($open->total_hours, 2) . 'h by ' . $user->name . ' (' . Carbon::parse($open->clock_in)->format('Y-m-d H:i') . ' – ' . Carbon::parse($open->clock_out)->format('Y-m-d H:i') . ')';
+                $timeIn = Carbon::parse($open->clock_in);
+                $timeOut = Carbon::parse($open->clock_out);
+                $timeInMs = $timeIn->getTimestampMs();
+                $timeOutMs = $timeOut->getTimestampMs();
+                $totalSeconds = max(0, $timeOut->diffInSeconds($timeIn));
+                $totalMinsPrecise = $totalSeconds / 60; // decimal minutes accurate to second
+                $notes = 'Notes: Time Tracker +' . number_format($totalMinsPrecise, 4) . ' mins (' . $user->name . ') from ' . $timeIn->format('Y-m-d H:i:s') . ' to ' . $timeOut->format('Y-m-d H:i:s');
 
                 if ($cfTaskId) { $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTaskId, $clickupTaskId); }
                 if ($cfUser) { $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfUser, (string) $user->name); }
                 if ($cfTimeIn) { $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTimeIn, $timeInMs); }
                 if ($cfTimeOut) { $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTimeOut, $timeOutMs); }
-                if ($cfTotalMins) { $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTotalMins, $totalMins); }
+                if ($cfTotalMins) { $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTotalMins, $totalMinsPrecise); }
                 if ($cfNotes) { $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfNotes, $notes); }
             }
         }
