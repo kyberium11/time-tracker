@@ -264,6 +264,80 @@ class ClickUpService
             return [ 'error' => true, 'status' => 0, 'body' => 'exception: '.$e->getMessage() ];
         }
     }
+
+    public function updateTaskCustomField(string $taskId, string $fieldId, $value): array
+    {
+        $headers = [
+            'Authorization' => (string) $this->apiToken,
+            'Content-Type' => 'application/json',
+            'Accept' => 'application/json',
+        ];
+        $base = 'https://api.clickup.com/api/v2/task/' . $taskId . '/field/' . $fieldId;
+        $teamId = env('CLICKUP_TEAM_ID');
+        $query = [ 'custom_task_ids' => 'true' ];
+        if ($teamId) { $query['team_id'] = $teamId; }
+
+        try {
+            $payload = [ 'value' => $value ];
+            $response = Http::withHeaders($headers)
+                ->timeout(4)
+                ->put($base, $payload, $query);
+
+            if ($response->failed()) {
+                Log::warning('ClickUp update custom field failed', [
+                    'taskId' => $taskId,
+                    'fieldId' => $fieldId,
+                    'status' => $response->status(),
+                    'body' => $response->body(),
+                ]);
+                return [ 'error' => true, 'status' => $response->status(), 'body' => (string) $response->body() ];
+            }
+            return $response->json() ?? ['ok' => true];
+        } catch (\Throwable $e) {
+            Log::warning('ClickUp update custom field exception', [
+                'taskId' => $taskId,
+                'fieldId' => $fieldId,
+                'message' => $e->getMessage(),
+            ]);
+            return [ 'error' => true, 'status' => 0, 'body' => 'exception: '.$e->getMessage() ];
+        }
+    }
+
+    public function addTaskComment(string $taskId, string $text): array
+    {
+        $headers = [
+            'Authorization' => (string) $this->apiToken,
+            'Content-Type' => 'application/json',
+            'Accept' => 'application/json',
+        ];
+        $base = 'https://api.clickup.com/api/v2/task/' . $taskId . '/comment';
+        $teamId = env('CLICKUP_TEAM_ID');
+        $query = [ 'custom_task_ids' => 'true' ];
+        if ($teamId) { $query['team_id'] = $teamId; }
+
+        try {
+            $payload = [ 'comment_text' => $text ];
+            $response = Http::withHeaders($headers)
+                ->timeout(4)
+                ->post($base, $payload, $query);
+
+            if ($response->failed()) {
+                Log::warning('ClickUp add task comment failed', [
+                    'taskId' => $taskId,
+                    'status' => $response->status(),
+                    'body' => $response->body(),
+                ]);
+                return [ 'error' => true, 'status' => $response->status(), 'body' => (string) $response->body() ];
+            }
+            return $response->json() ?? ['ok' => true];
+        } catch (\Throwable $e) {
+            Log::warning('ClickUp add task comment exception', [
+                'taskId' => $taskId,
+                'message' => $e->getMessage(),
+            ]);
+            return [ 'error' => true, 'status' => 0, 'body' => 'exception: '.$e->getMessage() ];
+        }
+    }
 }
 
 

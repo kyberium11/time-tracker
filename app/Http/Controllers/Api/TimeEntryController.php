@@ -33,30 +33,38 @@ class TimeEntryController extends Controller
         $user = Auth::user();
         $today = Carbon::today();
 
-        // Get any existing entry for today (do not restrict multiple Time In presses)
-        $existingEntry = TimeEntry::where('user_id', $user->id)
+        // Get any existing entry for today
+        $entry = TimeEntry::where('user_id', $user->id)
             ->where('date', $today)
             ->first();
 
-        // Create or update entry
-        $entry = TimeEntry::updateOrCreate(
-            [
+        // If no entry for today, create a fresh one
+        if (!$entry) {
+            $entry = TimeEntry::create([
                 'user_id' => $user->id,
                 'date' => $today,
-            ],
-            [
+                'task_id' => request('task_id'),
                 'clock_in' => Carbon::now(),
-                // Allow optional task_id from request; keep existing if not provided
-                'task_id' => request('task_id') ?? ($existingEntry->task_id ?? null),
-                // If re-starting after a Time Out, clear end fields to reopen today's entry
-                'clock_out' => null,
-                'break_start' => null,
-                'break_end' => null,
-                'lunch_start' => null,
-                'lunch_end' => null,
                 'total_hours' => 0,
-            ]
-        );
+            ]);
+        } else {
+            // Prevent overwriting an active session
+            if ($entry->clock_in && !$entry->clock_out) {
+                return response()->json(['message' => 'Already clocked in'], 400);
+            }
+
+            // Re-open a new work session for today without resetting accumulated total_hours
+            $entry->clock_in = Carbon::now();
+            $entry->clock_out = null;
+            $entry->break_start = null;
+            $entry->break_end = null;
+            $entry->lunch_start = null;
+            $entry->lunch_end = null;
+            if (request()->has('task_id')) {
+                $entry->task_id = request('task_id');
+            }
+            $entry->save();
+        }
 
         // Log activity
         $this->logActivity('clock_in', "Clocked in at {$entry->clock_in}");
@@ -80,10 +88,18 @@ class TimeEntryController extends Controller
             return response()->json(['message' => 'You need to clock in first'], 400);
         }
 
-        // Allow multiple time-outs in a day; last one wins
-
+        // Close current session and accumulate into total_hours
         $entry->clock_out = Carbon::now();
-        $entry->total_hours = $this->calculateTotalHours($entry);
+        $segmentHours = $this->calculateTotalHours($entry);
+        $entry->total_hours = round(($entry->total_hours ?? 0) + $segmentHours, 2);
+
+        // Reset session fields to allow new sessions later today
+        $entry->clock_in = null;
+        $entry->clock_out = null;
+        $entry->break_start = null;
+        $entry->break_end = null;
+        $entry->lunch_start = null;
+        $entry->lunch_end = null;
         $entry->save();
 
         // Log activity
@@ -147,7 +163,7 @@ class TimeEntryController extends Controller
         }
 
         $entry->break_end = Carbon::now();
-        $entry->total_hours = $this->calculateTotalHours($entry);
+        // Do not modify total_hours here; accumulation occurs on clock out
         $entry->save();
 
         // Log activity
@@ -211,7 +227,7 @@ class TimeEntryController extends Controller
         }
 
         $entry->lunch_end = Carbon::now();
-        $entry->total_hours = $this->calculateTotalHours($entry);
+        // Do not modify total_hours here; accumulation occurs on clock out
         $entry->save();
 
         // Log activity
@@ -284,15 +300,16 @@ class TimeEntryController extends Controller
 
         $this->logActivity('task_stop', "Stopped task #{$open->task_id} at {$open->clock_out}");
 
-        // Push to ClickUp time tracking (v2 Create a time entry)
+        // Optionally push native ClickUp time entries if explicitly enabled
+        $pushNative = filter_var(env('CLICKUP_PUSH_TIME_ENTRIES', false), FILTER_VALIDATE_BOOL);
         $teamId = env('CLICKUP_TEAM_ID');
-        if ($teamId && $open->task && $open->task->clickup_task_id) {
+        if ($pushNative && $teamId && $open->task && $open->task->clickup_task_id) {
             $startMs = Carbon::parse($open->clock_in)->getTimestampMs();
             $endMs = Carbon::parse($open->clock_out)->getTimestampMs();
             $durationMs = max(1000, $endMs - $startMs);
             $payload = [
-                'tid' => (string) $open->task->clickup_task_id, // some docs reference 'tid'
-                'task_id' => (string) $open->task->clickup_task_id, // also send as 'task_id' for compatibility
+                'tid' => (string) $open->task->clickup_task_id,
+                'task_id' => (string) $open->task->clickup_task_id,
                 'start' => $startMs,
                 'end' => $endMs,
                 'duration' => $durationMs,
@@ -301,7 +318,6 @@ class TimeEntryController extends Controller
             ];
             $result = $clickUp->createTimeEntry($teamId, $payload);
             if (isset($result['error']) && $result['error']) {
-                // Log a user activity with error so admins can see
                 $this->logActivity('clickup_time_entry_error', 'ClickUp time entry failed', [
                     'status' => $result['status'] ?? null,
                     'body' => $result['body'] ?? null,
@@ -313,6 +329,37 @@ class TimeEntryController extends Controller
                     'response' => $result,
                 ]);
             }
+        }
+
+        // Update ClickUp task custom fields and add a comment (without using native time entries)
+        if ($teamId && $open->task && $open->task->clickup_task_id) {
+            $clickupTaskId = (string) $open->task->clickup_task_id;
+
+            // Aggregate hours from local DB for this task
+            $totalHours = TimeEntry::where('task_id', $open->task_id)->sum('total_hours');
+            $todayHours = TimeEntry::where('task_id', $open->task_id)
+                ->whereDate('date', Carbon::today())
+                ->sum('total_hours');
+            $weekStart = Carbon::now()->startOfWeek();
+            $weekEnd = Carbon::now()->endOfWeek();
+            $weekHours = TimeEntry::where('task_id', $open->task_id)
+                ->whereBetween('date', [$weekStart->toDateString(), $weekEnd->toDateString()])
+                ->sum('total_hours');
+
+            $cfTotal = env('CLICKUP_CF_TOTAL_HOURS_ID');
+            $cfToday = env('CLICKUP_CF_TODAY_HOURS_ID');
+            $cfWeek = env('CLICKUP_CF_WEEK_HOURS_ID');
+
+            if ($cfTotal) { $clickUp->updateTaskCustomField($clickupTaskId, (string) $cfTotal, round($totalHours, 2)); }
+            if ($cfToday) { $clickUp->updateTaskCustomField($clickupTaskId, (string) $cfToday, round($todayHours, 2)); }
+            if ($cfWeek) { $clickUp->updateTaskCustomField($clickupTaskId, (string) $cfWeek, round($weekHours, 2)); }
+
+            // Add a structured comment for auditability
+            $delta = round($open->total_hours, 2);
+            $startStr = Carbon::parse($open->clock_in)->format('H:i');
+            $endStr = Carbon::parse($open->clock_out)->format('H:i');
+            $comment = "Time Tracker: +{$delta}h by {$user->name} ({$startStr}–{$endStr})";
+            $clickUp->addTaskComment($clickupTaskId, $comment);
         }
 
         return response()->json($open);

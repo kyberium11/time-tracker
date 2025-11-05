@@ -35,7 +35,17 @@ class EnsureMidnightRollovers
                 }
 
                 $entry->clock_out = Carbon::parse($entry->date)->endOfDay();
-                $entry->total_hours = $this->calculateTotalHours($entry);
+                // Accumulate this session into the day's total
+                $segmentHours = $this->calculateTotalHours($entry);
+                $entry->total_hours = round(($entry->total_hours ?? 0) + $segmentHours, 2);
+
+                // Clear session fields after finalizing the day
+                $entry->clock_in = null;
+                $entry->clock_out = null;
+                $entry->break_start = null;
+                $entry->break_end = null;
+                $entry->lunch_start = null;
+                $entry->lunch_end = null;
                 $entry->save();
             }
 
@@ -48,7 +58,8 @@ class EnsureMidnightRollovers
 
             foreach ($openTasks as $taskEntry) {
                 $taskEntry->clock_out = Carbon::parse($taskEntry->date ?: $taskEntry->created_at)->endOfDay();
-                $taskEntry->total_hours = $this->calculateTotalHours($taskEntry);
+                $segmentHours = $this->calculateTotalHours($taskEntry);
+                $taskEntry->total_hours = round(($taskEntry->total_hours ?? 0) + $segmentHours, 2);
                 $taskEntry->save();
             }
         }
