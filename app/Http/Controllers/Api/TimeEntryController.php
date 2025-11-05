@@ -357,8 +357,9 @@ class TimeEntryController extends Controller
             // Add a structured comment with second-level precision
             $start = Carbon::parse($open->clock_in);
             $end = Carbon::parse($open->clock_out);
+            $displayTz = env('CLICKUP_DISPLAY_TZ', config('app.timezone'));
             $durationSeconds = max(1, $start->diffInSeconds($end));
-            $comment = 'Time Tracker: +' . $this->formatDurationSeconds($durationSeconds) . ' by ' . $user->name . ' (' . $start->format('Y-m-d H:i:s') . '–' . $end->format('Y-m-d H:i:s') . ')';
+            $comment = 'Time Tracker: +' . $this->formatDurationSeconds($durationSeconds) . ' by ' . $user->name . ' (' . $start->clone()->setTimezone($displayTz)->format('Y-m-d H:i:s') . '–' . $end->clone()->setTimezone($displayTz)->format('Y-m-d H:i:s') . ' ' . $displayTz . ')';
             $clickUp->addTaskComment($clickupTaskId, $comment);
         }
 
@@ -368,13 +369,14 @@ class TimeEntryController extends Controller
             $clickupTaskIdForUrl = (string) ($open->task?->clickup_task_id ?? '');
             $taskUrl = $clickupTaskIdForUrl ? ('https://app.clickup.com/t/' . $clickupTaskIdForUrl) : (Carbon::parse($open->date)->toDateString() . ' | Task #' . $open->task_id);
             $taskName = $taskUrl;
+            $displayTz = env('CLICKUP_DISPLAY_TZ', config('app.timezone'));
             $descParts = [
                 'User: ' . $user->name,
                 'Email: ' . $user->email,
                 'Local Task ID: ' . $open->task_id,
                 'ClickUp Task ID: ' . ($open->task?->clickup_task_id ?? 'n/a'),
-                'Start: ' . Carbon::parse($open->clock_in)->toDateTimeString(),
-                'End: ' . Carbon::parse($open->clock_out)->toDateTimeString(),
+                'Start: ' . Carbon::parse($open->clock_in)->setTimezone($displayTz)->format('Y-m-d H:i:s') . ' ' . $displayTz,
+                'End: ' . Carbon::parse($open->clock_out)->setTimezone($displayTz)->format('Y-m-d H:i:s') . ' ' . $displayTz,
                 'Hours: ' . round(Carbon::parse($open->clock_in)->diffInSeconds(Carbon::parse($open->clock_out)) / 3600, 2),
             ];
             // Prepare custom field values (also used for create-time custom_fields)
@@ -392,7 +394,7 @@ class TimeEntryController extends Controller
             $timeOutMs = $end->getTimestampMs();
             $durationSeconds = max(1, $start->diffInSeconds($end));
             $totalMins = round($durationSeconds / 60, 3); // minutes with second-level precision
-            $notes = 'Time Tracker: +' . round($durationSeconds / 3600, 2) . 'h by ' . $user->name . ' (' . $start->format('Y-m-d H:i:s') . ' – ' . $end->format('Y-m-d H:i:s') . ')';
+            $notes = 'Time Tracker: +' . round($durationSeconds / 3600, 2) . 'h by ' . $user->name . ' (' . $start->clone()->setTimezone($displayTz)->format('Y-m-d H:i:s') . ' – ' . $end->clone()->setTimezone($displayTz)->format('Y-m-d H:i:s') . ' ' . $displayTz . ')';
 
             $customFields = [];
             if ($cfTaskId) { $customFields[] = ['id' => (string) $cfTaskId, 'value' => $clickupTaskId]; }
