@@ -64,6 +64,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/users/{id}', [UserManagementController::class, 'show']);
         Route::put('/users/{id}', [UserManagementController::class, 'update']);
         Route::delete('/users/{id}', [UserManagementController::class, 'destroy']);
+        Route::post('/users/{id}/clickup/sync-tasks', [UserManagementController::class, 'syncClickUpTasks']);
         
         // Team Management
         Route::get('/teams', [TeamController::class, 'index']);

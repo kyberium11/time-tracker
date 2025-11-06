@@ -137,6 +137,16 @@ const changeRole = async (userId: number, newRole: string) => {
     }
 };
 
+const refreshUserTasks = async (userId: number) => {
+    try {
+        const res = await api.post(`/admin/users/${userId}/clickup/sync-tasks`);
+        const count = res.data?.count ?? 0;
+        alert(`Synced ${count} task(s) from ClickUp.`);
+    } catch (error: any) {
+        alert(error?.response?.data?.error || 'Failed to sync tasks');
+    }
+};
+
 onMounted(() => {
     fetchUsers();
     fetchTeams();
@@ -232,6 +242,12 @@ onMounted(() => {
                                         class="rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-indigo-500"
                                     >
                                         Edit
+                                    </button>
+                                    <button
+                                        @click="refreshUserTasks(user.id)"
+                                        class="ml-2 rounded-md bg-green-600 px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-green-500"
+                                    >
+                                        Refresh Tasks
                                     </button>
                                     <button
                                         @click="deleteUser(user.id)"

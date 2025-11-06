@@ -377,6 +377,62 @@ class ClickUpService
             return [ 'error' => true, 'status' => 0, 'body' => 'exception: '.$e->getMessage() ];
         }
     }
+
+    /**
+     * List tasks in a ClickUp team filtered by assignee id (numeric) or email.
+     * Returns an array of task objects as provided by ClickUp.
+     */
+    public function listTeamTasksByAssignee(string $teamId, ?string $assigneeId = null, ?string $assigneeEmail = null, array $extraQuery = []): array
+    {
+        $headers = [
+            'Authorization' => (string) $this->apiToken,
+            'Accept' => 'application/json',
+        ];
+
+        // ClickUp supports assignees[] and assignees[] emails as filters on team task search
+        // We'll prioritize numeric id when provided.
+        $query = array_merge([
+            'include_closed' => 'true',
+            'subtasks' => 'true',
+            'order_by' => 'updated',
+            'reverse' => 'true',
+            // Conservative page size to avoid timeouts; can be tuned
+            'page' => 0,
+        ], $extraQuery);
+
+        if (!empty($assigneeId)) {
+            $query['assignees[]'] = $assigneeId;
+        } elseif (!empty($assigneeEmail)) {
+            $query['assignees[]'] = $assigneeEmail;
+        }
+
+        $url = 'https://api.clickup.com/api/v2/team/' . $teamId . '/task';
+
+        try {
+            $response = Http::withHeaders($headers)
+                ->timeout(10)
+                ->get($url, $query);
+
+            if ($response->failed()) {
+                Log::warning('ClickUp list tasks by assignee failed', [
+                    'teamId' => $teamId,
+                    'status' => $response->status(),
+                    'body' => $response->body(),
+                    'query' => $query,
+                ]);
+                return [];
+            }
+
+            $data = $response->json();
+            return is_array($data) ? ($data['tasks'] ?? []) : [];
+        } catch (\Throwable $e) {
+            Log::warning('ClickUp list tasks by assignee exception', [
+                'teamId' => $teamId,
+                'message' => $e->getMessage(),
+            ]);
+            return [];
+        }
+    }
 }
 
 
