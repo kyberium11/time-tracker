@@ -264,6 +264,17 @@ const fetchMyTasks = async () => {
     }
 };
 
+const refreshMyTasksFromClickUp = async () => {
+    try {
+        const res = await api.post('/my/clickup/sync-tasks');
+        const count = res.data?.count ?? 0;
+        await fetchMyTasks();
+        alert(`Synced ${count} task(s) from ClickUp.`);
+    } catch (e: any) {
+        alert(e?.response?.data?.error || 'Failed to sync tasks from ClickUp');
+    }
+};
+
 // High-level actions mapping to existing endpoints
 const timeIn = async () => {
     try {
@@ -702,6 +713,7 @@ const onChangeStatus = async (taskId: number, newStatus: string) => {
                         <div class="flex items-center justify-between mb-3">
                             <h3 class="text-lg font-medium leading-6 text-gray-900">My Tasks</h3>
                             <div class="flex items-center gap-2">
+                                <button @click="refreshMyTasksFromClickUp" class="rounded-md bg-green-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-green-700">Refresh from ClickUp</button>
                                 <input v-model="taskSearch" @input="goTaskPage(1)" type="text" placeholder="Search tasks" class="rounded-md border-gray-300 text-sm shadow-sm" />
                                 <select v-model="taskStatusFilter" @change="goTaskPage(1)" class="rounded-md border-gray-300 text-sm shadow-sm">
                                     <option value="all">All</option>

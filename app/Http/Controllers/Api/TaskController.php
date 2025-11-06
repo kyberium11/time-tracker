@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Auth;
 use App\Services\ClickUpService;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use App\Models\User;
 
 class TaskController extends Controller
 {
@@ -85,6 +86,58 @@ class TaskController extends Controller
         }
 
         return response()->json(['ok' => true, 'task' => $task]);
+    }
+
+    /**
+     * Manually sync the authenticated user's tasks from ClickUp.
+     */
+    public function syncMyClickUpTasks(ClickUpService $clickUp)
+    {
+        $user = Auth::user();
+        if (!$user) {
+            return response()->json(['error' => 'Unauthorized'], 401);
+        }
+
+        $teamId = (string) (env('CLICKUP_TEAM_ID') ?? '');
+        if ($teamId === '') {
+            return response()->json(['error' => 'CLICKUP_TEAM_ID is not configured'], 400);
+        }
+
+        $assigneeId = $user->clickup_user_id ? (string) $user->clickup_user_id : null;
+        $assigneeEmail = !$assigneeId ? (string) $user->email : null;
+
+        $tasks = $clickUp->listTeamTasksByAssignee($teamId, $assigneeId, $assigneeEmail);
+
+        $upserted = 0;
+        foreach ($tasks as $t) {
+            $taskId = (string) (data_get($t, 'id') ?? '');
+            if ($taskId === '') { continue; }
+
+            $clickupName = (string) (data_get($t, 'name') ?: ('Task ' . $taskId));
+            $clickupUrl = (string) (data_get($t, 'url') ?: ('https://app.clickup.com/t/' . $taskId));
+            $displayTitle = trim($clickupName . ' - ' . $clickupUrl);
+
+            Task::updateOrCreate(
+                ['clickup_task_id' => $taskId],
+                [
+                    'user_id' => $user->id,
+                    'title' => $displayTitle,
+                    'description' => (string) data_get($t, 'text_content'),
+                    'status' => (string) data_get($t, 'status.status'),
+                    'priority' => (string) (
+                        data_get($t, 'priority.label')
+                        ?: data_get($t, 'priority.priority')
+                        ?: data_get($t, 'priority')
+                        ?: null
+                    ),
+                    'clickup_parent_id' => (string) (data_get($t, 'parent') ?: null),
+                    'due_date' => ($ms = data_get($t, 'due_date')) ? Carbon::createFromTimestampMs((int)$ms) : null,
+                ]
+            );
+            $upserted++;
+        }
+
+        return response()->json(['ok' => true, 'count' => $upserted]);
     }
 }
 
