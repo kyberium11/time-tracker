@@ -574,7 +574,41 @@ class AnalyticsController extends Controller
             // Headers
             fputcsv($file, ['Task', 'Start Time', 'End Time', 'Duration', 'Break Duration', 'Notes']);
             
-            // Data
+            // Compute synthesized rows (Work Hours and Breaks)
+            $firstIn = null; $lastOut = null; $totalBreakSeconds = 0; $rawWorkSeconds = 0;
+            foreach ($entries as $e) {
+                $cin = $e->clock_in ? \Carbon\Carbon::parse($e->clock_in) : null;
+                $cout = $e->clock_out ? \Carbon\Carbon::parse($e->clock_out) : null;
+                if ($cin && (!$firstIn || $cin->lt($firstIn))) { $firstIn = $cin; }
+                if ($cout && (!$lastOut || $cout->gt($lastOut))) { $lastOut = $cout; }
+                if ($cin && $cout) {
+                    $rawWorkSeconds += max(0, $cout->diffInSeconds($cin));
+                }
+                if ($e->break_start && $e->break_end) {
+                    $bs = \Carbon\Carbon::parse($e->break_start);
+                    $be = \Carbon\Carbon::parse($e->break_end);
+                    $totalBreakSeconds += max(0, $be->diffInSeconds($bs));
+                }
+            }
+            $netWorkSeconds = max(0, $rawWorkSeconds - $totalBreakSeconds);
+            $pad = function ($n) { return $n < 10 ? '0'.$n : (string)$n; };
+            $fmtHms = function ($sec) use ($pad) { $h=intdiv($sec,3600); $m=intdiv($sec%3600,60); $s=$sec%60; return $pad($h).':'.$pad($m).':'.$pad($s); };
+
+            // Row: Work Hours (overall)
+            if ($firstIn && $lastOut) {
+                $startTime = $firstIn->setTimezone($timezone)->format('h:i A');
+                $endTime = $lastOut->setTimezone($timezone)->format('h:i A');
+                fputcsv($file, [
+                    'Work Hours',
+                    $startTime,
+                    $endTime,
+                    $fmtHms($netWorkSeconds),
+                    '00:00:00',
+                    '-',
+                ]);
+            }
+
+            // Data (task rows and Break rows)
             foreach ($entries as $entry) {
                 $clockIn = $entry->clock_in ? \Carbon\Carbon::parse($entry->clock_in)->setTimezone($timezone) : null;
                 $clockOut = $entry->clock_out ? \Carbon\Carbon::parse($entry->clock_out)->setTimezone($timezone) : null;
@@ -634,6 +668,18 @@ class AnalyticsController extends Controller
                     $breakDuration,
                     $notes,
                 ]);
+                // Add a distinct Break row mirroring UI when break segment exists
+                if ($breakStart && $breakEnd) {
+                    $bdSec = max(0, \Carbon\Carbon::parse($entry->break_end)->diffInSeconds(\Carbon\Carbon::parse($entry->break_start)));
+                    fputcsv($file, [
+                        'Break',
+                        $breakStart->format('h:i A'),
+                        $breakEnd->format('h:i A'),
+                        $fmtHms($bdSec),
+                        $fmtHms($bdSec),
+                        '-',
+                    ]);
+                }
             }
             
             fclose($file);
@@ -734,6 +780,34 @@ class AnalyticsController extends Controller
         $html .= '</div>';
         $html .= '<h2>Task Details</h2>';
         $html .= '<table><thead><tr><th>Task</th><th>Start Time</th><th>End Time</th><th>Duration</th><th>Break Duration</th><th>Notes</th></tr></thead><tbody>';
+
+        // Synthesize Work Hours row (overall)
+        $firstIn = null; $lastOut = null; $totalBreakSecondsRow = 0; $rawWorkSecondsRow = 0;
+        foreach ($entries as $e) {
+            $cin = $e->clock_in ? \Carbon\Carbon::parse($e->clock_in) : null;
+            $cout = $e->clock_out ? \Carbon\Carbon::parse($e->clock_out) : null;
+            if ($cin && (!$firstIn || $cin->lt($firstIn))) { $firstIn = $cin; }
+            if ($cout && (!$lastOut || $cout->gt($lastOut))) { $lastOut = $cout; }
+            if ($cin && $cout) { $rawWorkSecondsRow += max(0, $cout->diffInSeconds($cin)); }
+            if ($e->break_start && $e->break_end) {
+                $bs = \Carbon\Carbon::parse($e->break_start);
+                $be = \Carbon\Carbon::parse($e->break_end);
+                $totalBreakSecondsRow += max(0, $be->diffInSeconds($bs));
+            }
+        }
+        $netWorkSecondsRow = max(0, $rawWorkSecondsRow - $totalBreakSecondsRow);
+        $pad = function ($n) { return $n < 10 ? '0'.$n : (string)$n; };
+        $fmtHms = function ($sec) use ($pad) { $h=intdiv($sec,3600); $m=intdiv($sec%3600,60); $s=$sec%60; return $pad($h).':'.$pad($m).':'.$pad($s); };
+        if ($firstIn && $lastOut) {
+            $html .= '<tr>';
+            $html .= '<td>Work Hours</td>';
+            $html .= '<td>' . $firstIn->setTimezone($timezone)->format('h:i A') . '</td>';
+            $html .= '<td>' . $lastOut->setTimezone($timezone)->format('h:i A') . '</td>';
+            $html .= '<td>' . $fmtHms($netWorkSecondsRow) . '</td>';
+            $html .= '<td>00:00:00</td>';
+            $html .= '<td>-</td>';
+            $html .= '</tr>';
+        }
         
         foreach ($entries as $entry) {
             $clockIn = $entry->clock_in ? \Carbon\Carbon::parse($entry->clock_in)->setTimezone($timezone) : null;
@@ -794,6 +868,19 @@ class AnalyticsController extends Controller
             $html .= '<td>' . $breakDuration . '</td>';
             $html .= '<td>' . $notes . '</td>';
             $html .= '</tr>';
+
+            // Add Break row mirroring UI when present
+            if ($entry->break_start && $entry->break_end) {
+                $bdSec = max(0, \Carbon\Carbon::parse($entry->break_end)->diffInSeconds(\Carbon\Carbon::parse($entry->break_start)));
+                $html .= '<tr>';
+                $html .= '<td>Break</td>';
+                $html .= '<td>' . ($breakStart ? $breakStart->format('h:i A') : '--') . '</td>';
+                $html .= '<td>' . ($breakEnd ? $breakEnd->format('h:i A') : '--') . '</td>';
+                $html .= '<td>' . $fmtHms($bdSec) . '</td>';
+                $html .= '<td>' . $fmtHms($bdSec) . '</td>';
+                $html .= '<td>-</td>';
+                $html .= '</tr>';
+            }
         }
         
         $html .= '</tbody></table></body></html>';
