@@ -55,6 +55,12 @@ DB_DATABASE=your_database_name
 DB_USERNAME=your_database_user
 DB_PASSWORD=your_database_password
 
+# Session Configuration (Important for HTTPS sites)
+SESSION_DRIVER=database
+SESSION_SECURE_COOKIE=true
+SESSION_SAME_SITE=lax
+SESSION_HTTP_ONLY=true
+
 # ClickUp Integration
 CLICKUP_API_TOKEN=your_clickup_api_token
 CLICKUP_SIGNING_SECRET=your_clickup_signing_secret
@@ -134,11 +140,18 @@ If you need to deploy manually:
    - Verify database credentials in `.env`
    - Ensure database user has proper permissions
 
-3. **Assets Not Loading**:
+3. **419 CSRF Token Mismatch Error**:
+   - Ensure `SESSION_SECURE_COOKIE=true` is set in `.env` for HTTPS sites
+   - Verify `APP_URL` is set to your HTTPS domain (e.g., `https://yourdomain.com`)
+   - Clear config cache: `php artisan config:clear`
+   - Make sure session driver is set correctly (database recommended for production)
+   - Check that session table exists if using database driver: `php artisan migrate`
+
+4. **Assets Not Loading**:
    - Assets are pre-built and included in the repository
    - Check if `public/build` directory exists
 
-4. **ClickUp Webhook Not Working**:
+5. **ClickUp Webhook Not Working**:
    - Verify the webhook URL is accessible
    - Check if your hosting allows POST requests
    - Review webhook logs in the admin panel
