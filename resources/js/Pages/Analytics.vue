@@ -196,11 +196,11 @@ const loadUserDaily = async () => {
                 // For now, we'll skip adding separate Break rows since they're already included in Work Hours duration
             }
         });
-        // Sort derived rows by start time
+        // Sort derived rows by start time (most recent first)
         summaryRows.value.sort((a, b) => {
             const da = new Date(a.start).getTime();
             const db = new Date(b.start).getTime();
-            return (isNaN(da) ? 0 : da) - (isNaN(db) ? 0 : db);
+            return (isNaN(db) ? 0 : db) - (isNaN(da) ? 0 : da);
         });
 
         const eight = 8 * 3600;
