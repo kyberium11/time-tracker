@@ -800,6 +800,72 @@ const formatSecondsToHHMMSS = (sec: number | null | undefined) => {
     const pad = (n: number) => (n < 10 ? `0${n}` : `${n}`);
     return `${pad(h)}:${pad(m)}:${pad(s)}`;
 };
+
+// Status pill styling helper
+const getStatusClasses = (status: string | null) => {
+    if (!status) return '';
+    const statusLower = status.toLowerCase().trim();
+    
+    // "to do" should not be a pill
+    if (statusLower === 'to do' || statusLower === 'todo') {
+        return 'text-gray-700';
+    }
+    
+    // Color coding for different statuses
+    if (statusLower.includes('complete') || statusLower.includes('done') || statusLower.includes('finished')) {
+        return 'bg-green-100 text-green-800';
+    }
+    if (statusLower.includes('progress') || statusLower.includes('doing') || statusLower.includes('in progress') || statusLower.includes('working')) {
+        return 'bg-blue-100 text-blue-800';
+    }
+    if (statusLower.includes('pending') || statusLower.includes('waiting')) {
+        return 'bg-yellow-100 text-yellow-800';
+    }
+    if (statusLower.includes('blocked') || statusLower.includes('stuck')) {
+        return 'bg-red-100 text-red-800';
+    }
+    if (statusLower.includes('review') || statusLower.includes('testing')) {
+        return 'bg-purple-100 text-purple-800';
+    }
+    if (statusLower.includes('cancel') || statusLower.includes('closed')) {
+        return 'bg-gray-100 text-gray-800';
+    }
+    
+    // Default for other statuses
+    return 'bg-indigo-100 text-indigo-800';
+};
+
+// Priority pill styling helper
+const getPriorityClasses = (priority: string | null) => {
+    if (!priority) return 'bg-gray-100 text-gray-800';
+    const priorityLower = priority.toLowerCase().trim();
+    
+    if (priorityLower === 'urgent' || priorityLower === 'critical') {
+        return 'bg-red-100 text-red-800';
+    }
+    if (priorityLower === 'high') {
+        return 'bg-orange-100 text-orange-800';
+    }
+    if (priorityLower === 'normal' || priorityLower === 'medium') {
+        return 'bg-yellow-100 text-yellow-800';
+    }
+    if (priorityLower === 'low') {
+        return 'bg-green-100 text-green-800';
+    }
+    if (priorityLower === 'none' || priorityLower === '') {
+        return 'bg-gray-100 text-gray-800';
+    }
+    
+    // Default
+    return 'bg-gray-100 text-gray-800';
+};
+
+// Check if status should be a pill
+const isStatusPill = (status: string | null) => {
+    if (!status) return false;
+    const statusLower = status.toLowerCase().trim();
+    return statusLower !== 'to do' && statusLower !== 'todo';
+};
 </script>
 
 <template>
@@ -983,17 +1049,23 @@ const formatSecondsToHHMMSS = (sec: number | null | undefined) => {
                                             <button @click="openTaskDetails(t.id)" class="hover:underline">{{ t.title }}</button>
                                         </td>
                                         <td class="whitespace-nowrap px-6 py-4 text-sm">
-                                            <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold"
-                                                :class="{
-                                                    'bg-green-100 text-green-800': (t.status || '').toLowerCase().includes('complete') || (t.status || '').toLowerCase().includes('done'),
-                                                    'bg-yellow-100 text-yellow-800': (t.status || '').toLowerCase().includes('progress') || (t.status || '').toLowerCase().includes('doing'),
-                                                    'bg-gray-100 text-gray-800': !(t.status || '').trim()
-                                                }">
+                                            <span 
+                                                v-if="isStatusPill(t.status)"
+                                                class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold"
+                                                :class="getStatusClasses(t.status)"
+                                            >
+                                                {{ t.status || '—' }}
+                                            </span>
+                                            <span v-else class="text-sm text-gray-700">
                                                 {{ t.status || '—' }}
                                             </span>
                                         </td>
                                         <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-900">{{ t.due_date ? new Date(t.due_date).toLocaleDateString() : '--' }}</td>
-                                        <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-900">{{ t.priority || '--' }}</td>
+                                        <td class="whitespace-nowrap px-6 py-4 text-sm">
+                                            <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold" :class="getPriorityClasses(t.priority || null)">
+                                                {{ t.priority || 'None' }}
+                                            </span>
+                                        </td>
                                         <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-900">
                                             <div class="flex items-center space-x-2">
                                                 <button @click="runningTaskId === t.id ? pause() : play(t.id)" :disabled="loading" class="rounded-full p-2 text-white" :class="runningTaskId === t.id ? 'bg-yellow-600 hover:bg-yellow-700' : 'bg-green-600 hover:bg-green-700'" :aria-label="runningTaskId === t.id ? 'Pause' : 'Play'">
