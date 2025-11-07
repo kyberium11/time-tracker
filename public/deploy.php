@@ -59,15 +59,33 @@ function executeCommand($command, $cwd = null) {
     $output = [];
     $returnVar = 0;
     
+    // Set environment variables for composer
+    $env = [];
+    $home = getenv('HOME') ?: (getenv('HOMEPATH') ?: '/tmp');
+    $composerHome = $home . '/.composer';
+    
+    // Create COMPOSER_HOME directory if it doesn't exist
+    if (!is_dir($composerHome)) {
+        @mkdir($composerHome, 0755, true);
+    }
+    
+    // Set environment variables
+    putenv('HOME=' . $home);
+    putenv('COMPOSER_HOME=' . $composerHome);
+    
     // Try different methods to execute commands
     if (function_exists('exec')) {
-        exec($command . ' 2>&1', $output, $returnVar);
+        // Set environment variables in the command
+        $envCommand = 'export HOME=' . escapeshellarg($home) . ' && export COMPOSER_HOME=' . escapeshellarg($composerHome) . ' && ' . $command;
+        exec($envCommand . ' 2>&1', $output, $returnVar);
     } elseif (function_exists('shell_exec')) {
-        $output = shell_exec($command . ' 2>&1');
+        $envCommand = 'export HOME=' . escapeshellarg($home) . ' && export COMPOSER_HOME=' . escapeshellarg($composerHome) . ' && ' . $command;
+        $output = shell_exec($envCommand . ' 2>&1');
         $output = $output ? explode("\n", $output) : [];
     } elseif (function_exists('system')) {
+        $envCommand = 'export HOME=' . escapeshellarg($home) . ' && export COMPOSER_HOME=' . escapeshellarg($composerHome) . ' && ' . $command;
         ob_start();
-        system($command . ' 2>&1', $returnVar);
+        system($envCommand . ' 2>&1', $returnVar);
         $output = explode("\n", ob_get_clean());
     } else {
         return ['error' => 'No method available to execute commands. exec(), shell_exec(), and system() are disabled.'];
@@ -90,10 +108,16 @@ if (isset($_POST['action'])) {
     
     switch ($action) {
         case 'composer_install':
-            $command = 'cd ' . escapeshellarg($cwd) . ' && composer install --no-dev --optimize-autoloader --no-interaction 2>&1';
+            // Set HOME and COMPOSER_HOME environment variables
+            $home = getenv('HOME') ?: (getenv('HOMEPATH') ?: '/tmp');
+            $composerHome = $home . '/.composer';
+            $command = 'cd ' . escapeshellarg($cwd) . ' && export HOME=' . escapeshellarg($home) . ' && export COMPOSER_HOME=' . escapeshellarg($composerHome) . ' && composer install --no-dev --optimize-autoloader --no-interaction 2>&1';
             break;
         case 'composer_install_cpanel':
-            $command = 'cd ' . escapeshellarg($cwd) . ' && /opt/cpanel/composer/bin/composer install --no-dev --optimize-autoloader --no-interaction 2>&1';
+            // Set HOME and COMPOSER_HOME environment variables
+            $home = getenv('HOME') ?: (getenv('HOMEPATH') ?: '/tmp');
+            $composerHome = $home . '/.composer';
+            $command = 'cd ' . escapeshellarg($cwd) . ' && export HOME=' . escapeshellarg($home) . ' && export COMPOSER_HOME=' . escapeshellarg($composerHome) . ' && /opt/cpanel/composer/bin/composer install --no-dev --optimize-autoloader --no-interaction 2>&1';
             break;
         case 'generate_key':
             $command = 'cd ' . escapeshellarg($cwd) . ' && php artisan key:generate 2>&1';
