@@ -56,6 +56,23 @@ const taskEntries = ref<any[]>([]);
 const taskDetails = ref<any | null>(null);
 const showTaskModal = ref(false);
 
+// Tab system for employees
+const activeTab = ref<'dashboard' | 'time-entries'>('dashboard');
+
+// Time Entries Tab Data
+const timeEntriesDate = ref('');
+const timeEntriesData = ref<any[]>([]);
+const timeEntriesLoading = ref(false);
+const timeEntriesSummary = ref({
+    workSeconds: 0,
+    breakSeconds: 0,
+    lunchSeconds: 0,
+    tasksCount: 0,
+    status: 'No Entry',
+    overtimeSeconds: 0,
+});
+const timeEntriesRows = ref<any[]>([]);
+
 // My Tasks table controls
 const taskSearch = ref('');
 const currentTaskPage = ref(1);
@@ -209,6 +226,9 @@ const timeEvents = computed<TimeEvent[]>(() => {
 });
 
 onMounted(() => {
+    const today = new Date();
+    timeEntriesDate.value = today.toISOString().split('T')[0];
+    
     fetchCurrentEntry();
     fetchUserRole();
     fetchMyTasks();
@@ -601,6 +621,185 @@ const onChangeStatus = async (taskId: number, newStatus: string) => {
         loading.value = false;
     }
 };
+
+// Time Entries Tab Functions
+const loadTimeEntries = async () => {
+    if (!timeEntriesDate.value) return;
+    timeEntriesLoading.value = true;
+    try {
+        const res = await api.get('/my/time-entries', {
+            params: { start_date: timeEntriesDate.value, end_date: timeEntriesDate.value },
+        });
+        const list: any[] = res.data?.entries || [];
+        timeEntriesData.value = list;
+
+        // Build derived rows (Work Hours and Break) and compute totals
+        timeEntriesRows.value = [];
+        let rawWorkSeconds = 0;
+        let totalBreakSeconds = 0;
+        let firstIn: Date | null = null;
+        let firstInStr: string | null = null;
+        
+        list.forEach((e: any) => {
+            const cin = parseDateTime(e.clock_in);
+            const cout = parseDateTime(e.clock_out);
+            if (cin && (!firstIn || cin < firstIn)) { 
+                firstIn = cin; 
+                firstInStr = e.clock_in_formatted || e.clock_in; 
+            }
+            
+            const hasTask = e.task && (e.task.title || e.task.name);
+            
+            if (cin && cout && !hasTask) {
+                const workDur = Math.max(0, Math.floor((cout.getTime() - cin.getTime()) / 1000));
+                rawWorkSeconds += workDur;
+                
+                const bs = parseDateTime(e.break_start);
+                const be = parseDateTime(e.break_end);
+                let breakDur = 0;
+                if (bs && be) {
+                    breakDur = Math.max(0, Math.floor((be.getTime() - bs.getTime()) / 1000));
+                    totalBreakSeconds += breakDur;
+                }
+                
+                const netWorkDur = Math.max(0, workDur - breakDur);
+                
+                timeEntriesRows.value.push({
+                    name: 'Work Hours',
+                    start: e.clock_in_formatted || e.clock_in,
+                    end: e.clock_out_formatted || e.clock_out,
+                    durationSeconds: netWorkDur,
+                    breakDurationSeconds: breakDur,
+                    notes: '-'
+                });
+            }
+            
+            if (hasTask) {
+                const taskName = e.task.title || e.task.name;
+                if (cin && cout) {
+                    const taskDur = Math.max(0, Math.floor((cout.getTime() - cin.getTime()) / 1000));
+                    timeEntriesRows.value.push({
+                        name: taskName,
+                        start: e.clock_in_formatted || e.clock_in,
+                        end: e.clock_out_formatted || e.clock_out,
+                        durationSeconds: taskDur,
+                        breakDurationSeconds: 0,
+                        notes: '-'
+                    });
+                }
+            }
+            
+            const bs = parseDateTime(e.break_start);
+            const be = parseDateTime(e.break_end);
+            if (bs && be) {
+                const breakDur = Math.max(0, Math.floor((be.getTime() - bs.getTime()) / 1000));
+                timeEntriesRows.value.push({
+                    name: 'Break',
+                    start: e.break_start_formatted || e.break_start,
+                    end: e.break_end_formatted || e.break_end,
+                    durationSeconds: breakDur,
+                    breakDurationSeconds: breakDur,
+                    notes: '-'
+                });
+            }
+        });
+        
+        // Sort by start time (most recent first)
+        timeEntriesRows.value.sort((a, b) => {
+            const da = new Date(a.start).getTime();
+            const db = new Date(b.start).getTime();
+            return (isNaN(db) ? 0 : db) - (isNaN(da) ? 0 : da);
+        });
+
+        // Use API-provided daily totals if available, otherwise calculate
+        if (res.data?.daily_totals) {
+            timeEntriesSummary.value = {
+                workSeconds: res.data.daily_totals.work_seconds || 0,
+                breakSeconds: res.data.daily_totals.break_seconds || 0,
+                lunchSeconds: res.data.daily_totals.lunch_seconds || 0,
+                tasksCount: res.data.daily_totals.tasks_count || 0,
+                status: res.data.daily_totals.status || 'No Entry',
+                overtimeSeconds: res.data.daily_totals.overtime_seconds || 0,
+            };
+        } else {
+            const eight = 8 * 3600;
+            const netWork = Math.max(0, rawWorkSeconds - totalBreakSeconds);
+            const overtime = Math.max(0, netWork - eight);
+            let status = 'No Entry';
+            if (firstIn) {
+                const manilaHours = ((firstIn as Date).getUTCHours() + 8) % 24;
+                const manilaMinutes = (firstIn as Date).getUTCMinutes();
+                status = (manilaHours < 8 || (manilaHours === 8 && manilaMinutes <= 30)) ? 'Perfect' : 'Late';
+            }
+            timeEntriesSummary.value = { 
+                workSeconds: netWork, 
+                breakSeconds: totalBreakSeconds, 
+                lunchSeconds: 0, 
+                tasksCount: timeEntriesRows.value.length, 
+                status, 
+                overtimeSeconds: overtime 
+            };
+        }
+    } catch (e) {
+        console.error('Error loading time entries', e);
+        timeEntriesData.value = [];
+        timeEntriesRows.value = [];
+        timeEntriesSummary.value = { workSeconds: 0, breakSeconds: 0, lunchSeconds: 0, tasksCount: 0, status: 'No Entry', overtimeSeconds: 0 };
+    } finally {
+        timeEntriesLoading.value = false;
+    }
+};
+
+const parseDateTime = (s: string | null): Date | null => {
+    if (!s) return null;
+    const sql = s.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/);
+    if (sql) {
+        const y = Number(sql[1]);
+        const mo = Number(sql[2]) - 1;
+        const d = Number(sql[3]);
+        const hh = Number(sql[4]);
+        const mm = Number(sql[5]);
+        const ss = Number(sql[6] || '0');
+        return new Date(Date.UTC(y, mo, d, hh - 8, mm, ss));
+    }
+    const norm = s.includes('T') ? s : s.replace(' ', 'T');
+    const d2 = new Date(norm);
+    return isNaN(d2.getTime()) ? null : d2;
+};
+
+const formatTimeForEntries = (time: string | null) => {
+    if (!time) return '--';
+    try {
+        const d = new Date(time);
+        if (!isNaN(d.getTime())) {
+            return d.toLocaleTimeString('en-US', { 
+                hour: '2-digit', 
+                minute: '2-digit',
+                hour12: true,
+                timeZone: 'Asia/Manila' 
+            });
+        }
+    } catch {}
+    const match = time.match(/\b(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+    if (match) {
+        let hh = parseInt(match[1], 10);
+        const mm = match[2];
+        const suffix = hh >= 12 ? 'PM' : 'AM';
+        hh = hh % 12;
+        if (hh === 0) hh = 12;
+        return `${hh}:${mm} ${suffix}`;
+    }
+    return '--';
+};
+
+const formatSecondsToHHMMSS = (sec: number | null | undefined) => {
+    const total = typeof sec === 'number' && isFinite(sec) ? Math.max(0, Math.floor(sec)) : 0;
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+    const pad = (n: number) => (n < 10 ? `0${n}` : `${n}`);
+    return `${pad(h)}:${pad(m)}:${pad(s)}`;
+};
 </script>
 
 <template>
@@ -615,6 +814,36 @@ const onChangeStatus = async (taskId: number, newStatus: string) => {
 
         <div class="py-12">
             <div class="mx-auto max-w-7xl sm:px-6 lg:px-8">
+                <!-- Tab Navigation for Employees -->
+                <div v-if="userRole !== 'admin'" class="border-b border-gray-200 mb-6">
+                    <nav class="-mb-px flex space-x-8">
+                        <button
+                            @click="activeTab = 'dashboard'"
+                            :class="[
+                                'whitespace-nowrap border-b-2 py-4 px-1 text-sm font-medium',
+                                activeTab === 'dashboard'
+                                    ? 'border-indigo-500 text-indigo-600'
+                                    : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+                            ]"
+                        >
+                            Dashboard
+                        </button>
+                        <button
+                            @click="activeTab = 'time-entries'; loadTimeEntries()"
+                            :class="[
+                                'whitespace-nowrap border-b-2 py-4 px-1 text-sm font-medium',
+                                activeTab === 'time-entries'
+                                    ? 'border-indigo-500 text-indigo-600'
+                                    : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+                            ]"
+                        >
+                            Time Entries
+                        </button>
+                    </nav>
+                </div>
+
+                <!-- Dashboard Tab Content -->
+                <div v-if="activeTab === 'dashboard' || userRole === 'admin'">
                 <!-- Header Cards: Work Day Timer, Daily Logs -->
                 <div class="mb-6 grid gap-4 md:grid-cols-3" v-if="userRole !== 'admin'">
                     <!-- Work Day Timer -->
@@ -876,6 +1105,99 @@ const onChangeStatus = async (taskId: number, newStatus: string) => {
                         </div>
                     </div>
                 </div>
+                </div>
+                <!-- End Dashboard Tab Content -->
+
+                <!-- Time Entries Tab Content -->
+                <div v-if="activeTab === 'time-entries' && userRole !== 'admin'" class="space-y-6">
+                    <!-- Filters -->
+                    <div class="bg-white shadow rounded-lg p-4">
+                        <div class="grid gap-4 sm:grid-cols-2">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Date</label>
+                                <input 
+                                    v-model="timeEntriesDate" 
+                                    @change="loadTimeEntries" 
+                                    type="date" 
+                                    class="w-full rounded-md border-gray-300 shadow-sm" 
+                                />
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Daily Summary -->
+                    <div class="bg-white shadow rounded-lg p-5">
+                        <h3 class="text-lg font-medium leading-6 text-gray-900 mb-4">Daily Summary</h3>
+                        <div class="grid gap-4 sm:grid-cols-3 lg:grid-cols-5 text-sm">
+                            <div>
+                                <div class="text-gray-500">🕒 Time In Hours</div>
+                                <div class="font-semibold">{{ formatSecondsToHHMMSS(timeEntriesSummary.workSeconds) }}</div>
+                            </div>
+                            <div>
+                                <div class="text-gray-500">☕ Total Breaks</div>
+                                <div class="font-semibold">{{ formatSecondsToHHMMSS(timeEntriesSummary.breakSeconds) }}</div>
+                            </div>
+                            <div>
+                                <div class="text-gray-500">📋 Entries</div>
+                                <div class="font-semibold">{{ timeEntriesSummary.tasksCount }}</div>
+                            </div>
+                            <div>
+                                <div class="text-gray-500">⏰ Status</div>
+                                <div 
+                                    class="font-semibold"
+                                    :class="{ 
+                                        'text-green-700': timeEntriesSummary.status === 'Perfect', 
+                                        'text-yellow-700': timeEntriesSummary.status === 'Late', 
+                                        'text-gray-700': timeEntriesSummary.status === 'No Entry' 
+                                    }"
+                                >
+                                    {{ timeEntriesSummary.status }}
+                                </div>
+                            </div>
+                            <div>
+                                <div class="text-gray-500">⚡ Overtime</div>
+                                <div class="font-semibold">{{ formatSecondsToHHMMSS(timeEntriesSummary.overtimeSeconds) }}</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Sessions Table -->
+                    <div class="bg-white shadow rounded-lg">
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Task</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Start Time</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">End Time</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Duration</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Break Duration</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Notes</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-gray-200">
+                                    <tr v-for="(row, idx) in timeEntriesRows" :key="idx">
+                                        <td class="px-4 py-4 text-sm text-gray-900">{{ row.name }}</td>
+                                        <td class="px-4 py-4 text-sm text-gray-500">{{ formatTimeForEntries(row.start) }}</td>
+                                        <td class="px-4 py-4 text-sm text-gray-500">{{ formatTimeForEntries(row.end) }}</td>
+                                        <td class="px-4 py-4 text-sm text-gray-900 font-semibold">{{ formatSecondsToHHMMSS(row.durationSeconds) }}</td>
+                                        <td class="px-4 py-4 text-sm text-gray-500">{{ formatSecondsToHHMMSS(row.breakDurationSeconds || 0) }}</td>
+                                        <td class="px-4 py-4 text-sm text-gray-500">{{ row.notes || '-' }}</td>
+                                    </tr>
+                                    <tr v-if="timeEntriesRows.length === 0 && !timeEntriesLoading">
+                                        <td colspan="6" class="px-4 py-4 text-center text-sm text-gray-500">No entries for selected day</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div v-if="timeEntriesLoading" class="text-center py-8">
+                            <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+                            <p class="mt-2 text-sm text-gray-500">Loading...</p>
+                        </div>
+                    </div>
+                </div>
+                <!-- End Time Entries Tab Content -->
+
             </div>
             <!-- Daily Logs Modal -->
             <div v-if="showDailyLogs" class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">

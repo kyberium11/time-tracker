@@ -211,6 +211,167 @@ class AnalyticsController extends Controller
     }
 
     /**
+     * Get current user's own time entries (for employees).
+     */
+    public function myTimeEntries(Request $request)
+    {
+        $user = Auth::user();
+        $startDate = $request->input('start_date', now()->format('Y-m-d'));
+        $endDate = $request->input('end_date', now()->format('Y-m-d'));
+
+        $entries = TimeEntry::with(['task'])
+            ->where('user_id', $user->id)
+            ->whereBetween('date', [$startDate, $endDate])
+            ->whereNotNull('clock_in')
+            ->whereNotNull('clock_out')
+            ->orderBy('date', 'desc')
+            ->orderBy('clock_in', 'asc')
+            ->get();
+
+        // Enrich per-entry precise seconds and HMS for frontend reliability
+        // Format times in Asia/Manila timezone
+        $timezone = 'Asia/Manila';
+        $entries = $entries->map(function ($entry) use ($timezone) {
+            $clockIn = $entry->clock_in ? \Carbon\Carbon::parse($entry->clock_in)->setTimezone($timezone) : null;
+            $clockOut = $entry->clock_out ? \Carbon\Carbon::parse($entry->clock_out)->setTimezone($timezone) : null;
+            $breakStart = $entry->break_start ? \Carbon\Carbon::parse($entry->break_start)->setTimezone($timezone) : null;
+            $breakEnd = $entry->break_end ? \Carbon\Carbon::parse($entry->break_end)->setTimezone($timezone) : null;
+            $lunchStart = $entry->lunch_start ? \Carbon\Carbon::parse($entry->lunch_start)->setTimezone($timezone) : null;
+            $lunchEnd = $entry->lunch_end ? \Carbon\Carbon::parse($entry->lunch_end)->setTimezone($timezone) : null;
+            
+            // Format times for display in Asia/Manila
+            $entry->clock_in_formatted = $clockIn ? $clockIn->format('Y-m-d H:i:s') : null;
+            $entry->clock_out_formatted = $clockOut ? $clockOut->format('Y-m-d H:i:s') : null;
+            $entry->break_start_formatted = $breakStart ? $breakStart->format('Y-m-d H:i:s') : null;
+            $entry->break_end_formatted = $breakEnd ? $breakEnd->format('Y-m-d H:i:s') : null;
+            $entry->lunch_start_formatted = $lunchStart ? $lunchStart->format('Y-m-d H:i:s') : null;
+            $entry->lunch_end_formatted = $lunchEnd ? $lunchEnd->format('Y-m-d H:i:s') : null;
+            
+            $seconds = 0;
+            if ($clockIn && $clockOut) {
+                // Use original UTC timestamps for accurate duration calculation
+                $clockInUtc = $entry->clock_in ? \Carbon\Carbon::parse($entry->clock_in) : null;
+                $clockOutUtc = $entry->clock_out ? \Carbon\Carbon::parse($entry->clock_out) : null;
+                if ($clockInUtc && $clockOutUtc) {
+                    $seconds = max(0, $clockOutUtc->diffInSeconds($clockInUtc));
+                    if ($entry->break_start && $entry->break_end) {
+                        $bs = \Carbon\Carbon::parse($entry->break_start);
+                        $be = \Carbon\Carbon::parse($entry->break_end);
+                        $seconds -= max(0, $be->diffInSeconds($bs));
+                    }
+                    if ($entry->lunch_start && $entry->lunch_end) {
+                        $ls = \Carbon\Carbon::parse($entry->lunch_start);
+                        $le = \Carbon\Carbon::parse($entry->lunch_end);
+                        $seconds -= max(0, $le->diffInSeconds($ls));
+                    }
+                    $seconds = max(0, $seconds);
+                }
+            }
+            $h = intdiv($seconds, 3600);
+            $m = intdiv($seconds % 3600, 60);
+            $s = $seconds % 60;
+            $pad = function ($n) { return $n < 10 ? '0'.$n : (string) $n; };
+            $entry->duration_seconds = $seconds;
+            $entry->duration_hms = $pad($h).'h '.$pad($m).'m '.$pad($s).'s';
+            $entry->duration_hms_colon = $pad($h).':'.$pad($m).':'.$pad($s);
+            return $entry;
+        });
+
+        // Calculate daily totals
+        $workSeconds = 0;
+        $breakSeconds = 0;
+        $lunchSeconds = 0;
+        $tasksCount = 0;
+        $firstIn = null;
+        $lastOut = null;
+        
+        foreach ($entries as $entry) {
+            if ($entry->clock_in && $entry->clock_out) {
+                $clockInUtc = \Carbon\Carbon::parse($entry->clock_in);
+                $clockOutUtc = \Carbon\Carbon::parse($entry->clock_out);
+                $seconds = max(0, $clockOutUtc->diffInSeconds($clockInUtc));
+                $workSeconds += $seconds;
+                
+                if (!$firstIn || $clockInUtc->lt($firstIn)) {
+                    $firstIn = $clockInUtc;
+                }
+                if (!$lastOut || $clockOutUtc->gt($lastOut)) {
+                    $lastOut = $clockOutUtc;
+                }
+                
+                if ($entry->break_start && $entry->break_end) {
+                    $bs = \Carbon\Carbon::parse($entry->break_start);
+                    $be = \Carbon\Carbon::parse($entry->break_end);
+                    $breakSeconds += max(0, $be->diffInSeconds($bs));
+                    $workSeconds -= max(0, $be->diffInSeconds($bs));
+                }
+                
+                if ($entry->lunch_start && $entry->lunch_end) {
+                    $ls = \Carbon\Carbon::parse($entry->lunch_start);
+                    $le = \Carbon\Carbon::parse($entry->lunch_end);
+                    $lunchSeconds += max(0, $le->diffInSeconds($ls));
+                    $workSeconds -= max(0, $le->diffInSeconds($ls));
+                }
+            }
+            if ($entry->task && ($entry->task->title || $entry->task->name)) {
+                $tasksCount++;
+            }
+        }
+        
+        $workSeconds = max(0, $workSeconds);
+        
+        // Determine status
+        $status = 'No Entry';
+        if ($firstIn && $lastOut) {
+            $shiftHours = $user->shift_start && $user->shift_end ? 
+                (\Carbon\Carbon::parse($user->shift_end)->diffInSeconds(\Carbon\Carbon::parse($user->shift_start)) / 3600) : 8;
+            
+            $clockInTime = $firstIn->format('H:i');
+            $expectedStart = $user->shift_start ? \Carbon\Carbon::parse($user->shift_start)->format('H:i') : '09:00';
+            $isLate = $clockInTime > $expectedStart;
+            $hasEnoughHours = ($workSeconds / 3600) >= ($shiftHours - 0.5);
+            
+            if (!$isLate && $hasEnoughHours) {
+                $status = 'Perfect';
+            } elseif ($isLate) {
+                $status = 'Late';
+            } else {
+                $status = 'Undertime';
+            }
+        }
+        
+        // Calculate overtime
+        $shiftHours = $user->shift_start && $user->shift_end ? 
+            (\Carbon\Carbon::parse($user->shift_end)->diffInSeconds(\Carbon\Carbon::parse($user->shift_start)) / 3600) : 8;
+        $overtimeSeconds = max(0, $workSeconds - ($shiftHours * 3600));
+
+        return response()->json([
+            'user' => [
+                'id' => $user->id,
+                'name' => $user->name,
+                'email' => $user->email,
+            ],
+            'entries' => $entries,
+            'summary' => [
+                'total_hours' => round($workSeconds / 3600, 2),
+                'total_entries' => $entries->count(),
+                'period' => [
+                    'start_date' => $startDate,
+                    'end_date' => $endDate,
+                ],
+            ],
+            'daily_totals' => [
+                'work_seconds' => $workSeconds,
+                'break_seconds' => $breakSeconds,
+                'lunch_seconds' => $lunchSeconds,
+                'tasks_count' => $tasksCount,
+                'status' => $status,
+                'overtime_seconds' => $overtimeSeconds,
+            ],
+        ]);
+    }
+
+    /**
      * Get user-specific analytics.
      */
     public function userAnalytics(Request $request, User $user)

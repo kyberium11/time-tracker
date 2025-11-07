@@ -39,6 +39,9 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::post('/my/clickup/sync-tasks', [TaskController::class, 'syncMyClickUpTasks']);
     Route::get('/tasks/{id}/sync', [TaskController::class, 'sync']);
 
+    // My time entries (for employees)
+    Route::get('/my/time-entries', [AnalyticsController::class, 'myTimeEntries']);
+
     // Task timers
     Route::post('/tasks/start', [TimeEntryController::class, 'startTask']);
     Route::post('/tasks/stop', [TimeEntryController::class, 'stopTask']);
