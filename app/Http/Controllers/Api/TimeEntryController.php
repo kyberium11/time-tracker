@@ -18,8 +18,11 @@ class TimeEntryController extends Controller
      */
     public function getCurrentEntry()
     {
+        // Get the open entry (clocked in but not clocked out)
         $entry = TimeEntry::where('user_id', Auth::id())
             ->where('date', Carbon::today())
+            ->whereNotNull('clock_in')
+            ->whereNull('clock_out')
             ->first();
 
         return response()->json($entry ?: null);
