@@ -5,6 +5,23 @@ use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
+// Diagnostic route for CSRF debugging
+Route::get('/debug-csrf', function () {
+    return response()->json([
+        'has_session' => request()->hasSession(),
+        'session_id' => request()->hasSession() ? request()->session()->getId() : null,
+        'session_token' => request()->hasSession() ? request()->session()->token() : null,
+        'csrf_token' => csrf_token(),
+        'xsrf_cookie' => request()->cookie('XSRF-TOKEN'),
+        'session_cookie' => request()->cookie(config('session.cookie')),
+        'session_driver' => config('session.driver'),
+        'session_secure' => config('session.secure'),
+        'session_same_site' => config('session.same_site'),
+        'app_url' => config('app.url'),
+        'all_cookies' => request()->cookies->all(),
+    ]);
+});
+
 // Redirect root to login
 Route::get('/', function () {
     return redirect('/login');

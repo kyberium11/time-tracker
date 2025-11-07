@@ -13,7 +13,7 @@ class VerifyCsrfToken extends Middleware
      * @var array<int, string>
      */
     protected $except = [
-        // CSRF protection enabled for all routes
+        'debug-csrf', // Diagnostic route
     ];
 
     /**
