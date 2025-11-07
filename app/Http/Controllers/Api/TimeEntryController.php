@@ -48,22 +48,39 @@ class TimeEntryController extends Controller
                 'total_hours' => 0,
             ]);
         } else {
-            // Prevent overwriting an active session
-            if ($entry->clock_in && !$entry->clock_out) {
+            // Check if there's an open entry (clocked in but not clocked out)
+            $openEntry = TimeEntry::where('user_id', $user->id)
+                ->where('date', $today)
+                ->whereNotNull('clock_in')
+                ->whereNull('clock_out')
+                ->first();
+            
+            if ($openEntry) {
                 return response()->json(['message' => 'Already clocked in'], 400);
             }
 
-            // Re-open a new work session for today without resetting accumulated total_hours
-            $entry->clock_in = Carbon::now();
-            $entry->clock_out = null;
-            $entry->break_start = null;
-            $entry->break_end = null;
-            $entry->lunch_start = null;
-            $entry->lunch_end = null;
-            if (request()->has('task_id')) {
-                $entry->task_id = request('task_id');
-            }
-            $entry->save();
+            // Get the last entry to carry forward total_hours
+            $lastEntry = TimeEntry::where('user_id', $user->id)
+                ->where('date', $today)
+                ->whereNotNull('clock_out')
+                ->orderBy('id', 'desc')
+                ->first();
+            
+            $accumulatedHours = $lastEntry ? $lastEntry->total_hours : 0;
+
+            // Create a new entry for this clock-in cycle
+            $entry = TimeEntry::create([
+                'user_id' => $user->id,
+                'date' => $today,
+                'task_id' => request('task_id'),
+                'clock_in' => Carbon::now(),
+                'clock_out' => null,
+                'break_start' => null,
+                'break_end' => null,
+                'lunch_start' => null,
+                'lunch_end' => null,
+                'total_hours' => $accumulatedHours, // Carry forward accumulated hours
+            ]);
         }
 
         // Log activity
@@ -80,11 +97,14 @@ class TimeEntryController extends Controller
         $user = Auth::user();
         $today = Carbon::today();
 
+        // Find the open entry (clocked in but not clocked out)
         $entry = TimeEntry::where('user_id', $user->id)
             ->where('date', $today)
+            ->whereNotNull('clock_in')
+            ->whereNull('clock_out')
             ->first();
 
-        if (!$entry || !$entry->clock_in) {
+        if (!$entry) {
             return response()->json(['message' => 'You need to clock in first'], 400);
         }
 
@@ -94,14 +114,6 @@ class TimeEntryController extends Controller
         $entry->clock_out = $clockOutAt;
         $segmentHours = $this->calculateTotalHours($entry);
         $entry->total_hours = round(($entry->total_hours ?? 0) + $segmentHours, 2);
-
-        // Reset session fields to allow new sessions later today
-        $entry->clock_in = null;
-        $entry->clock_out = null;
-        $entry->break_start = null;
-        $entry->break_end = null;
-        $entry->lunch_start = null;
-        $entry->lunch_end = null;
         $entry->save();
 
         // Log activity
@@ -131,11 +143,14 @@ class TimeEntryController extends Controller
         $user = Auth::user();
         $today = Carbon::today();
 
+        // Find the open entry (clocked in but not clocked out)
         $entry = TimeEntry::where('user_id', $user->id)
             ->where('date', $today)
+            ->whereNotNull('clock_in')
+            ->whereNull('clock_out')
             ->first();
 
-        if (!$entry || !$entry->clock_in) {
+        if (!$entry) {
             return response()->json(['message' => 'You need to clock in first'], 400);
         }
 
@@ -165,8 +180,11 @@ class TimeEntryController extends Controller
         $user = Auth::user();
         $today = Carbon::today();
 
+        // Find the open entry (clocked in but not clocked out)
         $entry = TimeEntry::where('user_id', $user->id)
             ->where('date', $today)
+            ->whereNotNull('clock_in')
+            ->whereNull('clock_out')
             ->first();
 
         if (!$entry || !$entry->break_start) {
@@ -210,11 +228,14 @@ class TimeEntryController extends Controller
         $user = Auth::user();
         $today = Carbon::today();
 
+        // Find the open entry (clocked in but not clocked out)
         $entry = TimeEntry::where('user_id', $user->id)
             ->where('date', $today)
+            ->whereNotNull('clock_in')
+            ->whereNull('clock_out')
             ->first();
 
-        if (!$entry || !$entry->clock_in) {
+        if (!$entry) {
             return response()->json(['message' => 'You need to clock in first'], 400);
         }
 
@@ -244,8 +265,11 @@ class TimeEntryController extends Controller
         $user = Auth::user();
         $today = Carbon::today();
 
+        // Find the open entry (clocked in but not clocked out)
         $entry = TimeEntry::where('user_id', $user->id)
             ->where('date', $today)
+            ->whereNotNull('clock_in')
+            ->whereNull('clock_out')
             ->first();
 
         if (!$entry || !$entry->lunch_start) {

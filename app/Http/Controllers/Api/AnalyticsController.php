@@ -221,8 +221,10 @@ class AnalyticsController extends Controller
         $entries = TimeEntry::with(['task'])
             ->where('user_id', $user->id)
             ->whereBetween('date', [$startDate, $endDate])
+            ->whereNotNull('clock_in')
             ->whereNotNull('clock_out')
             ->orderBy('date', 'desc')
+            ->orderBy('clock_in', 'asc')
             ->get();
 
         // Enrich per-entry precise seconds and HMS for frontend reliability

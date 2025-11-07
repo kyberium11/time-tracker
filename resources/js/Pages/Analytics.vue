@@ -135,20 +135,44 @@ const loadUserDaily = async () => {
         let rawWorkSeconds = 0; // total work session duration before subtracting breaks
         let totalBreakSeconds = 0;
         let firstIn: Date | null = null;
-        let lastOut: Date | null = null;
         let firstInStr: string | null = null;
-        let lastOutStr: string | null = null;
         list.forEach((e: any) => {
             const cin = parseDateTime(e.clock_in);
             const cout = parseDateTime(e.clock_out);
             if (cin && (!firstIn || cin < firstIn)) { firstIn = cin; firstInStr = e.clock_in_formatted || e.clock_in; }
-            if (cout && (!lastOut || cout > lastOut)) { lastOut = cout; lastOutStr = e.clock_out_formatted || e.clock_out; }
-            if (cin && cout) {
+            
+            // Check if this is a Work Hours entry (has clock_in and clock_out, but no task)
+            const hasTask = (e as any).task && (((e as any).task.title) || ((e as any).task.name));
+            
+            if (cin && cout && !hasTask) {
+                // This is a Work Hours entry - create a separate row for each clock-in/clock-out cycle
                 const workDur = Math.max(0, Math.floor((cout.getTime() - cin.getTime()) / 1000));
                 rawWorkSeconds += workDur;
+                
+                // Calculate break duration for this specific entry
+                const bs = parseDateTime((e as any).break_start);
+                const be = parseDateTime((e as any).break_end);
+                let breakDur = 0;
+                if (bs && be) {
+                    breakDur = Math.max(0, Math.floor((be.getTime() - bs.getTime()) / 1000));
+                    totalBreakSeconds += breakDur;
+                }
+                
+                // Calculate net work duration (work - break for this entry)
+                const netWorkDur = Math.max(0, workDur - breakDur);
+                
+                summaryRows.value.push({
+                    name: 'Work Hours',
+                    start: e.clock_in_formatted || e.clock_in,
+                    end: e.clock_out_formatted || e.clock_out,
+                    durationSeconds: netWorkDur,
+                    breakDurationSeconds: breakDur,
+                    notes: '-'
+                });
             }
+            
             // Include task time entries as their own rows if present
-            if ((e as any).task && (((e as any).task.title) || ((e as any).task.name))) {
+            if (hasTask) {
                 const taskName = ((e as any).task.title) || ((e as any).task.name);
                 if (cin && cout) {
                     const taskDur = Math.max(0, Math.floor((cout.getTime() - cin.getTime()) / 1000));
@@ -162,19 +186,14 @@ const loadUserDaily = async () => {
                     });
                 }
             }
+            
+            // Add Break rows separately (for breaks that might be on entries without clock_out yet)
             const bs = parseDateTime((e as any).break_start);
             const be = parseDateTime((e as any).break_end);
             if (bs && be) {
-                const b = Math.max(0, Math.floor((be.getTime() - bs.getTime()) / 1000));
-                totalBreakSeconds += b;
-                summaryRows.value.push({
-                    name: 'Break',
-                    start: (e as any).break_start_formatted || (e as any).break_start,
-                    end: (e as any).break_end_formatted || (e as any).break_end,
-                    durationSeconds: b,
-                    breakDurationSeconds: b,
-                    notes: '-'
-                });
+                // Only add break row if it's not already accounted for in a Work Hours entry above
+                // (We already added break duration to Work Hours entries, but we might want to show breaks separately too)
+                // For now, we'll skip adding separate Break rows since they're already included in Work Hours duration
             }
         });
         // Sort derived rows by start time
@@ -193,17 +212,6 @@ const loadUserDaily = async () => {
             const manilaHours = ((firstIn as Date).getUTCHours() + 8) % 24;
             const manilaMinutes = (firstIn as Date).getUTCMinutes();
             status = (manilaHours < 8 || (manilaHours === 8 && manilaMinutes <= 30)) ? 'Perfect' : 'Late';
-        }
-        // Add a single Work Hours row representing the Time Out event (overall shift)
-        if (firstIn && lastOut && firstInStr && lastOutStr) {
-            summaryRows.value.unshift({
-                name: 'Work Hours',
-                start: firstInStr,
-                end: lastOutStr,
-                durationSeconds: netWork,
-                breakDurationSeconds: 0,
-                notes: '-'
-            });
         }
 
         dailyTotals.value = { workSeconds: netWork, breakSeconds: totalBreakSeconds, lunchSeconds: 0, tasksCount: summaryRows.value.length, status, overtimeSeconds: overtime };
