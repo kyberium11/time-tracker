@@ -18,6 +18,7 @@ class TimeEntry extends Model
         'lunch_start',
         'lunch_end',
         'total_hours',
+        'entry_type',
     ];
 
     protected $casts = [

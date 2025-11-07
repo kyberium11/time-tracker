@@ -137,6 +137,26 @@ const loadUserDaily = async () => {
         let firstIn: Date | null = null;
         let firstInStr: string | null = null;
         list.forEach((e: any) => {
+            // Handle break entries separately
+            if (e.is_break || e.entry_type === 'break') {
+                const cin = parseDateTime(e.clock_in);
+                const cout = parseDateTime(e.clock_out);
+                if (cin && cout) {
+                    const breakDur = Math.max(0, Math.floor((cout.getTime() - cin.getTime()) / 1000));
+                    totalBreakSeconds += breakDur;
+                    summaryRows.value.push({
+                        name: 'Break',
+                        start: e.clock_in_formatted || e.clock_in,
+                        end: e.clock_out_formatted || e.clock_out,
+                        durationSeconds: breakDur,
+                        breakDurationSeconds: breakDur,
+                        notes: '-'
+                    });
+                }
+                return; // Skip processing as work entry
+            }
+            
+            // This is a work entry
             const cin = parseDateTime(e.clock_in);
             const cout = parseDateTime(e.clock_out);
             if (cin && (!firstIn || cin < firstIn)) { firstIn = cin; firstInStr = e.clock_in_formatted || e.clock_in; }
@@ -149,24 +169,23 @@ const loadUserDaily = async () => {
                 const workDur = Math.max(0, Math.floor((cout.getTime() - cin.getTime()) / 1000));
                 rawWorkSeconds += workDur;
                 
-                // Calculate break duration for this specific entry
-                const bs = parseDateTime((e as any).break_start);
-                const be = parseDateTime((e as any).break_end);
-                let breakDur = 0;
-                if (bs && be) {
-                    breakDur = Math.max(0, Math.floor((be.getTime() - bs.getTime()) / 1000));
-                    totalBreakSeconds += breakDur;
+                // Subtract lunch if present (breaks are now separate entries)
+                const ls = parseDateTime((e as any).lunch_start);
+                const le = parseDateTime((e as any).lunch_end);
+                let lunchDur = 0;
+                if (ls && le) {
+                    lunchDur = Math.max(0, Math.floor((le.getTime() - ls.getTime()) / 1000));
                 }
                 
-                // Calculate net work duration (work - break for this entry)
-                const netWorkDur = Math.max(0, workDur - breakDur);
+                // Calculate net work duration (work - lunch)
+                const netWorkDur = Math.max(0, workDur - lunchDur);
                 
                 summaryRows.value.push({
                     name: 'Work Hours',
                     start: e.clock_in_formatted || e.clock_in,
                     end: e.clock_out_formatted || e.clock_out,
                     durationSeconds: netWorkDur,
-                    breakDurationSeconds: breakDur,
+                    breakDurationSeconds: 0, // Breaks are now separate entries
                     notes: '-'
                 });
             }
@@ -186,15 +205,6 @@ const loadUserDaily = async () => {
                     });
                 }
             }
-            
-            // Add Break rows separately (for breaks that might be on entries without clock_out yet)
-            const bs = parseDateTime((e as any).break_start);
-            const be = parseDateTime((e as any).break_end);
-            if (bs && be) {
-                // Only add break row if it's not already accounted for in a Work Hours entry above
-                // (We already added break duration to Work Hours entries, but we might want to show breaks separately too)
-                // For now, we'll skip adding separate Break rows since they're already included in Work Hours duration
-            }
         });
         // Sort derived rows by start time (most recent first)
         summaryRows.value.sort((a, b) => {
@@ -207,6 +217,11 @@ const loadUserDaily = async () => {
         const workHoursSum = summaryRows.value
             .filter(row => row.name === 'Work Hours')
             .reduce((sum, row) => sum + (row.durationSeconds || 0), 0);
+        
+        // Calculate totalBreakSeconds as sum of all "Break" entries
+        const totalBreakSecondsFromRows = summaryRows.value
+            .filter(row => row.name === 'Break')
+            .reduce((sum, row) => sum + (row.durationSeconds || 0), 0);
 
         const eight = 8 * 3600;
         const overtime = Math.max(0, workHoursSum - eight);
@@ -218,7 +233,7 @@ const loadUserDaily = async () => {
             status = (manilaHours < 8 || (manilaHours === 8 && manilaMinutes <= 30)) ? 'Perfect' : 'Late';
         }
 
-        dailyTotals.value = { workSeconds: workHoursSum, breakSeconds: totalBreakSeconds, lunchSeconds: 0, tasksCount: summaryRows.value.length, status, overtimeSeconds: overtime };
+        dailyTotals.value = { workSeconds: workHoursSum, breakSeconds: totalBreakSecondsFromRows, lunchSeconds: 0, tasksCount: summaryRows.value.length, status, overtimeSeconds: overtime };
     } catch (e) {
         console.error('Error loading user daily analytics', e);
         sessions.value = [];

@@ -18,12 +18,27 @@ class TimeEntryController extends Controller
      */
     public function getCurrentEntry()
     {
-        // Get the open entry (clocked in but not clocked out)
+        // Get the open work entry (clocked in but not clocked out)
         $entry = TimeEntry::where('user_id', Auth::id())
             ->where('date', Carbon::today())
+            ->where('entry_type', 'work')
             ->whereNotNull('clock_in')
             ->whereNull('clock_out')
             ->first();
+
+        // Also get current break entry if any
+        $breakEntry = TimeEntry::where('user_id', Auth::id())
+            ->where('date', Carbon::today())
+            ->where('entry_type', 'break')
+            ->whereNotNull('clock_in')
+            ->whereNull('clock_out')
+            ->first();
+
+        // Merge break info into work entry for backward compatibility
+        if ($entry && $breakEntry) {
+            $entry->break_start = $breakEntry->clock_in;
+            $entry->break_end = null;
+        }
 
         return response()->json($entry ?: null);
     }
@@ -47,13 +62,15 @@ class TimeEntryController extends Controller
                 'user_id' => $user->id,
                 'date' => $today,
                 'task_id' => request('task_id'),
+                'entry_type' => 'work',
                 'clock_in' => Carbon::now(),
                 'total_hours' => 0,
             ]);
         } else {
-            // Check if there's an open entry (clocked in but not clocked out)
+            // Check if there's an open work entry (clocked in but not clocked out)
             $openEntry = TimeEntry::where('user_id', $user->id)
                 ->where('date', $today)
+                ->where('entry_type', 'work')
                 ->whereNotNull('clock_in')
                 ->whereNull('clock_out')
                 ->first();
@@ -76,6 +93,7 @@ class TimeEntryController extends Controller
                 'user_id' => $user->id,
                 'date' => $today,
                 'task_id' => request('task_id'),
+                'entry_type' => 'work',
                 'clock_in' => Carbon::now(),
                 'clock_out' => null,
                 'break_start' => null,
@@ -100,9 +118,10 @@ class TimeEntryController extends Controller
         $user = Auth::user();
         $today = Carbon::today();
 
-        // Find the open entry (clocked in but not clocked out)
+        // Find the open work entry (clocked in but not clocked out)
         $entry = TimeEntry::where('user_id', $user->id)
             ->where('date', $today)
+            ->where('entry_type', 'work')
             ->whereNotNull('clock_in')
             ->whereNull('clock_out')
             ->first();
@@ -146,33 +165,52 @@ class TimeEntryController extends Controller
         $user = Auth::user();
         $today = Carbon::today();
 
-        // Find the open entry (clocked in but not clocked out)
-        $entry = TimeEntry::where('user_id', $user->id)
+        // Find the open work entry (clocked in but not clocked out)
+        $workEntry = TimeEntry::where('user_id', $user->id)
             ->where('date', $today)
+            ->where('entry_type', 'work')
             ->whereNotNull('clock_in')
             ->whereNull('clock_out')
             ->first();
 
-        if (!$entry) {
+        if (!$workEntry) {
             return response()->json(['message' => 'You need to clock in first'], 400);
         }
 
-        if ($entry->break_start && !$entry->break_end) {
+        // Check if there's already an open break entry
+        $openBreak = TimeEntry::where('user_id', $user->id)
+            ->where('date', $today)
+            ->where('entry_type', 'break')
+            ->whereNotNull('clock_in')
+            ->whereNull('clock_out')
+            ->first();
+
+        if ($openBreak) {
             return response()->json(['message' => 'You are already on break'], 400);
         }
 
         // Check if lunch is currently active
-        if ($entry->lunch_start && !$entry->lunch_end) {
+        if ($workEntry->lunch_start && !$workEntry->lunch_end) {
             return response()->json(['message' => 'You are currently on lunch. End lunch before starting break.'], 400);
         }
 
-        $entry->break_start = Carbon::now();
-        $entry->save();
+        // Create a separate break entry
+        $breakEntry = TimeEntry::create([
+            'user_id' => $user->id,
+            'date' => $today,
+            'entry_type' => 'break',
+            'clock_in' => Carbon::now(),
+            'total_hours' => 0,
+        ]);
+
+        // Also update work entry's break_start for backward compatibility
+        $workEntry->break_start = Carbon::now();
+        $workEntry->save();
 
         // Log activity
-        $this->logActivity('break_start', "Started break at {$entry->break_start}");
+        $this->logActivity('break_start', "Started break at {$breakEntry->clock_in}");
 
-        return response()->json($entry);
+        return response()->json($breakEntry);
     }
 
     /**
@@ -183,29 +221,39 @@ class TimeEntryController extends Controller
         $user = Auth::user();
         $today = Carbon::today();
 
-        // Find the open entry (clocked in but not clocked out)
-        $entry = TimeEntry::where('user_id', $user->id)
+        // Find the open break entry
+        $breakEntry = TimeEntry::where('user_id', $user->id)
             ->where('date', $today)
+            ->where('entry_type', 'break')
             ->whereNotNull('clock_in')
             ->whereNull('clock_out')
             ->first();
 
-        if (!$entry || !$entry->break_start) {
+        if (!$breakEntry) {
             return response()->json(['message' => 'You need to start a break first'], 400);
         }
 
-        if ($entry->break_end) {
-            return response()->json(['message' => 'Break already ended'], 400);
+        $breakStartAt = Carbon::parse((string) $breakEntry->clock_in);
+        $breakEndAt = Carbon::now();
+        $breakEntry->clock_out = $breakEndAt;
+        $breakEntry->total_hours = round($breakStartAt->diffInSeconds($breakEndAt) / 3600, 2);
+        $breakEntry->save();
+
+        // Also update work entry's break_end for backward compatibility
+        $workEntry = TimeEntry::where('user_id', $user->id)
+            ->where('date', $today)
+            ->where('entry_type', 'work')
+            ->whereNotNull('clock_in')
+            ->whereNull('clock_out')
+            ->first();
+        
+        if ($workEntry) {
+            $workEntry->break_end = $breakEndAt;
+            $workEntry->save();
         }
 
-        $breakStartAt = Carbon::parse((string) $entry->break_start);
-        $breakEndAt = Carbon::now();
-        $entry->break_end = $breakEndAt;
-        // Do not modify total_hours here; accumulation occurs on clock out
-        $entry->save();
-
         // Log activity
-        $this->logActivity('break_end', "Ended break at {$entry->break_end}");
+        $this->logActivity('break_end', "Ended break at {$breakEndAt}");
 
         // Send a reporting row to ClickUp for Break event
         $this->createClickUpReportRow(
@@ -213,14 +261,14 @@ class TimeEntryController extends Controller
             eventName: 'Break',
             start: $breakStartAt,
             end: $breakEndAt,
-            relatedTaskId: (string) ($entry->task?->clickup_task_id ?? ''),
+            relatedTaskId: '',
             userName: Auth::user()->name,
             userEmail: Auth::user()->email,
-            localTaskId: (string) ($entry->task_id ?? ''),
-            entryDate: Carbon::parse($entry->date)
+            localTaskId: '',
+            entryDate: Carbon::parse($breakEntry->date)
         );
 
-        return response()->json($entry);
+        return response()->json($breakEntry);
     }
 
     /**

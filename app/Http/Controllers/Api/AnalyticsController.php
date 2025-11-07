@@ -219,14 +219,31 @@ class AnalyticsController extends Controller
         $startDate = $request->input('start_date', now()->format('Y-m-d'));
         $endDate = $request->input('end_date', now()->format('Y-m-d'));
 
-        $entries = TimeEntry::with(['task'])
+        // Get work entries
+        $workEntries = TimeEntry::with(['task'])
             ->where('user_id', $user->id)
             ->whereBetween('date', [$startDate, $endDate])
+            ->where('entry_type', 'work')
             ->whereNotNull('clock_in')
             ->whereNotNull('clock_out')
             ->orderBy('date', 'desc')
             ->orderBy('clock_in', 'asc')
             ->get();
+        
+        // Get break entries
+        $breakEntries = TimeEntry::where('user_id', $user->id)
+            ->whereBetween('date', [$startDate, $endDate])
+            ->where('entry_type', 'break')
+            ->whereNotNull('clock_in')
+            ->whereNotNull('clock_out')
+            ->orderBy('date', 'desc')
+            ->orderBy('clock_in', 'asc')
+            ->get();
+        
+        // Combine and sort by clock_in time
+        $entries = $workEntries->concat($breakEntries)->sortBy(function($entry) {
+            return $entry->clock_in ? $entry->clock_in->timestamp : 0;
+        })->values();
 
         // Enrich per-entry precise seconds and HMS for frontend reliability
         // Format times in Asia/Manila timezone
@@ -278,7 +295,7 @@ class AnalyticsController extends Controller
         });
 
         // Calculate daily totals
-        // Only count entries without tasks as "Work Hours"
+        // Only count work entries without tasks as "Work Hours"
         $workSeconds = 0;
         $breakSeconds = 0;
         $lunchSeconds = 0;
@@ -287,6 +304,19 @@ class AnalyticsController extends Controller
         $lastOut = null;
         
         foreach ($entries as $entry) {
+            // Skip break entries in work calculation
+            if ($entry->entry_type === 'break') {
+                // Calculate break duration
+                if ($entry->clock_in && $entry->clock_out) {
+                    $clockInUtc = \Carbon\Carbon::parse($entry->clock_in);
+                    $clockOutUtc = \Carbon\Carbon::parse($entry->clock_out);
+                    $breakDur = max(0, $clockOutUtc->diffInSeconds($clockInUtc));
+                    $breakSeconds += $breakDur;
+                }
+                continue;
+            }
+            
+            // This is a work entry
             // Check if this entry has a task
             $hasTask = $entry->task && ($entry->task->title || $entry->task->name);
             
@@ -304,16 +334,7 @@ class AnalyticsController extends Controller
                     $lastOut = $clockOutUtc;
                 }
                 
-                // Subtract breaks from work hours
-                if ($entry->break_start && $entry->break_end) {
-                    $bs = \Carbon\Carbon::parse($entry->break_start);
-                    $be = \Carbon\Carbon::parse($entry->break_end);
-                    $breakDur = max(0, $be->diffInSeconds($bs));
-                    $breakSeconds += $breakDur;
-                    $workSeconds -= $breakDur;
-                }
-                
-                // Subtract lunch from work hours
+                // Subtract lunch from work hours (breaks are now separate entries)
                 if ($entry->lunch_start && $entry->lunch_end) {
                     $ls = \Carbon\Carbon::parse($entry->lunch_start);
                     $le = \Carbon\Carbon::parse($entry->lunch_end);
@@ -389,50 +410,81 @@ class AnalyticsController extends Controller
         $startDate = $request->input('start_date', now()->startOfMonth());
         $endDate = $request->input('end_date', now()->endOfMonth());
 
-        $entries = TimeEntry::with(['task'])
+        // Get work entries
+        $workEntries = TimeEntry::with(['task'])
             ->where('user_id', $user->id)
             ->whereBetween('date', [$startDate, $endDate])
+            ->where('entry_type', 'work')
             ->whereNotNull('clock_in')
             ->whereNotNull('clock_out')
             ->orderBy('date', 'desc')
             ->orderBy('clock_in', 'asc')
             ->get();
+        
+        // Get break entries
+        $breakEntries = TimeEntry::where('user_id', $user->id)
+            ->whereBetween('date', [$startDate, $endDate])
+            ->where('entry_type', 'break')
+            ->whereNotNull('clock_in')
+            ->whereNotNull('clock_out')
+            ->orderBy('date', 'desc')
+            ->orderBy('clock_in', 'asc')
+            ->get();
+        
+        // Combine and sort by clock_in time
+        $entries = $workEntries->concat($breakEntries)->sortBy(function($entry) {
+            return $entry->clock_in ? $entry->clock_in->timestamp : 0;
+        })->values();
 
         // Enrich per-entry precise seconds and HMS for frontend reliability
         // Format times in Asia/Manila timezone
         $timezone = 'Asia/Manila';
         $entries = $entries->map(function ($entry) use ($timezone) {
-            $clockIn = $entry->clock_in ? \Carbon\Carbon::parse($entry->clock_in)->setTimezone($timezone) : null;
-            $clockOut = $entry->clock_out ? \Carbon\Carbon::parse($entry->clock_out)->setTimezone($timezone) : null;
-            $breakStart = $entry->break_start ? \Carbon\Carbon::parse($entry->break_start)->setTimezone($timezone) : null;
-            $breakEnd = $entry->break_end ? \Carbon\Carbon::parse($entry->break_end)->setTimezone($timezone) : null;
-            $lunchStart = $entry->lunch_start ? \Carbon\Carbon::parse($entry->lunch_start)->setTimezone($timezone) : null;
-            $lunchEnd = $entry->lunch_end ? \Carbon\Carbon::parse($entry->lunch_end)->setTimezone($timezone) : null;
-            
-            // Format times for display in Asia/Manila
-            $entry->clock_in_formatted = $clockIn ? $clockIn->format('Y-m-d H:i:s') : null;
-            $entry->clock_out_formatted = $clockOut ? $clockOut->format('Y-m-d H:i:s') : null;
-            $entry->break_start_formatted = $breakStart ? $breakStart->format('Y-m-d H:i:s') : null;
-            $entry->break_end_formatted = $breakEnd ? $breakEnd->format('Y-m-d H:i:s') : null;
-            $entry->lunch_start_formatted = $lunchStart ? $lunchStart->format('Y-m-d H:i:s') : null;
-            $entry->lunch_end_formatted = $lunchEnd ? $lunchEnd->format('Y-m-d H:i:s') : null;
+            // For break entries, use clock_in/clock_out as break start/end
+            if ($entry->entry_type === 'break') {
+                $entry->is_break = true;
+                $breakStart = $entry->clock_in ? \Carbon\Carbon::parse($entry->clock_in)->setTimezone($timezone) : null;
+                $breakEnd = $entry->clock_out ? \Carbon\Carbon::parse($entry->clock_out)->setTimezone($timezone) : null;
+                $entry->clock_in_formatted = $breakStart ? $breakStart->format('Y-m-d H:i:s') : null;
+                $entry->clock_out_formatted = $breakEnd ? $breakEnd->format('Y-m-d H:i:s') : null;
+                $entry->break_start_formatted = null;
+                $entry->break_end_formatted = null;
+                $entry->lunch_start_formatted = null;
+                $entry->lunch_end_formatted = null;
+            } else {
+                $entry->is_break = false;
+                $clockIn = $entry->clock_in ? \Carbon\Carbon::parse($entry->clock_in)->setTimezone($timezone) : null;
+                $clockOut = $entry->clock_out ? \Carbon\Carbon::parse($entry->clock_out)->setTimezone($timezone) : null;
+                $lunchStart = $entry->lunch_start ? \Carbon\Carbon::parse($entry->lunch_start)->setTimezone($timezone) : null;
+                $lunchEnd = $entry->lunch_end ? \Carbon\Carbon::parse($entry->lunch_end)->setTimezone($timezone) : null;
+                
+                // Format times for display in Asia/Manila
+                $entry->clock_in_formatted = $clockIn ? $clockIn->format('Y-m-d H:i:s') : null;
+                $entry->clock_out_formatted = $clockOut ? $clockOut->format('Y-m-d H:i:s') : null;
+                $entry->lunch_start_formatted = $lunchStart ? $lunchStart->format('Y-m-d H:i:s') : null;
+                $entry->lunch_end_formatted = $lunchEnd ? $lunchEnd->format('Y-m-d H:i:s') : null;
+                
+                // Legacy break fields for backward compatibility (only for work entries)
+                $breakStart = $entry->break_start ? \Carbon\Carbon::parse($entry->break_start)->setTimezone($timezone) : null;
+                $breakEnd = $entry->break_end ? \Carbon\Carbon::parse($entry->break_end)->setTimezone($timezone) : null;
+                $entry->break_start_formatted = $breakStart ? $breakStart->format('Y-m-d H:i:s') : null;
+                $entry->break_end_formatted = $breakEnd ? $breakEnd->format('Y-m-d H:i:s') : null;
+            }
             
             $seconds = 0;
-            if ($clockIn && $clockOut) {
+            if ($entry->clock_in && $entry->clock_out) {
                 // Use original UTC timestamps for accurate duration calculation
                 $clockInUtc = $entry->clock_in ? \Carbon\Carbon::parse($entry->clock_in) : null;
                 $clockOutUtc = $entry->clock_out ? \Carbon\Carbon::parse($entry->clock_out) : null;
                 if ($clockInUtc && $clockOutUtc) {
                     $seconds = max(0, $clockOutUtc->diffInSeconds($clockInUtc));
-                    if ($entry->break_start && $entry->break_end) {
-                        $bs = \Carbon\Carbon::parse($entry->break_start);
-                        $be = \Carbon\Carbon::parse($entry->break_end);
-                        $seconds -= max(0, $be->diffInSeconds($bs));
-                    }
-                    if ($entry->lunch_start && $entry->lunch_end) {
-                        $ls = \Carbon\Carbon::parse($entry->lunch_start);
-                        $le = \Carbon\Carbon::parse($entry->lunch_end);
-                        $seconds -= max(0, $le->diffInSeconds($ls));
+                    // For work entries, subtract lunch (breaks are now separate entries)
+                    if ($entry->entry_type === 'work') {
+                        if ($entry->lunch_start && $entry->lunch_end) {
+                            $ls = \Carbon\Carbon::parse($entry->lunch_start);
+                            $le = \Carbon\Carbon::parse($entry->lunch_end);
+                            $seconds -= max(0, $le->diffInSeconds($ls));
+                        }
                     }
                     $seconds = max(0, $seconds);
                 }

@@ -381,9 +381,15 @@ const toggleBreak = async () => {
 
 // Running timer (hh:mm:ss) based on active phase start
 const pad = (n: number) => (n < 10 ? `0${n}` : `${n}`);
+// Work timer - always runs from clock_in, never stops for breaks
 const activeStart = computed<Date | null>(() => {
-    if (isOnBreak.value && currentEntry.value?.break_start) return new Date(currentEntry.value.break_start);
     if (isClockedIn.value && currentEntry.value?.clock_in) return new Date(currentEntry.value.clock_in);
+    return null;
+});
+
+// Break timer - separate timer for breaks
+const breakStart = computed<Date | null>(() => {
+    if (isOnBreak.value && currentEntry.value?.break_start) return new Date(currentEntry.value.break_start);
     return null;
 });
 
@@ -395,6 +401,18 @@ const runningTaskStart = computed<Date | null>(() => {
 
 const runningDisplay = computed(() => {
     const start = activeStart.value;
+    if (!start) return '00:00:00';
+    const diffMs = currentTime.value.getTime() - start.getTime();
+    const totalSeconds = Math.max(0, Math.floor(diffMs / 1000));
+    const h = Math.floor(totalSeconds / 3600);
+    const m = Math.floor((totalSeconds % 3600) / 60);
+    const s = totalSeconds % 60;
+    return `${pad(h)}:${pad(m)}:${pad(s)}`;
+});
+
+// Break timer display
+const breakDisplay = computed(() => {
+    const start = breakStart.value;
     if (!start) return '00:00:00';
     const diffMs = currentTime.value.getTime() - start.getTime();
     const totalSeconds = Math.max(0, Math.floor(diffMs / 1000));
@@ -652,6 +670,26 @@ const loadTimeEntries = async () => {
         let firstInStr: string | null = null;
         
         list.forEach((e: any) => {
+            // Handle break entries separately
+            if (e.is_break || e.entry_type === 'break') {
+                const cin = parseDateTime(e.clock_in);
+                const cout = parseDateTime(e.clock_out);
+                if (cin && cout) {
+                    const breakDur = Math.max(0, Math.floor((cout.getTime() - cin.getTime()) / 1000));
+                    totalBreakSeconds += breakDur;
+                    timeEntriesRows.value.push({
+                        name: 'Break',
+                        start: e.clock_in_formatted || e.clock_in,
+                        end: e.clock_out_formatted || e.clock_out,
+                        durationSeconds: breakDur,
+                        breakDurationSeconds: breakDur,
+                        notes: '-'
+                    });
+                }
+                return; // Skip processing as work entry
+            }
+            
+            // This is a work entry
             const cin = parseDateTime(e.clock_in);
             const cout = parseDateTime(e.clock_out);
             if (cin && (!firstIn || cin < firstIn)) { 
@@ -661,30 +699,32 @@ const loadTimeEntries = async () => {
             
             const hasTask = e.task && (e.task.title || e.task.name);
             
+            // Work Hours entry (no task)
             if (cin && cout && !hasTask) {
                 const workDur = Math.max(0, Math.floor((cout.getTime() - cin.getTime()) / 1000));
                 rawWorkSeconds += workDur;
                 
-                const bs = parseDateTime(e.break_start);
-                const be = parseDateTime(e.break_end);
-                let breakDur = 0;
-                if (bs && be) {
-                    breakDur = Math.max(0, Math.floor((be.getTime() - bs.getTime()) / 1000));
-                    totalBreakSeconds += breakDur;
+                // Subtract lunch if present
+                const ls = parseDateTime(e.lunch_start);
+                const le = parseDateTime(e.lunch_end);
+                let lunchDur = 0;
+                if (ls && le) {
+                    lunchDur = Math.max(0, Math.floor((le.getTime() - ls.getTime()) / 1000));
                 }
                 
-                const netWorkDur = Math.max(0, workDur - breakDur);
+                const netWorkDur = Math.max(0, workDur - lunchDur);
                 
                 timeEntriesRows.value.push({
                     name: 'Work Hours',
                     start: e.clock_in_formatted || e.clock_in,
                     end: e.clock_out_formatted || e.clock_out,
                     durationSeconds: netWorkDur,
-                    breakDurationSeconds: breakDur,
+                    breakDurationSeconds: 0, // Breaks are now separate entries
                     notes: '-'
                 });
             }
             
+            // Task entry
             if (hasTask) {
                 const taskName = e.task.title || e.task.name;
                 if (cin && cout) {
@@ -699,20 +739,6 @@ const loadTimeEntries = async () => {
                     });
                 }
             }
-            
-            const bs = parseDateTime(e.break_start);
-            const be = parseDateTime(e.break_end);
-            if (bs && be) {
-                const breakDur = Math.max(0, Math.floor((be.getTime() - bs.getTime()) / 1000));
-                timeEntriesRows.value.push({
-                    name: 'Break',
-                    start: e.break_start_formatted || e.break_start,
-                    end: e.break_end_formatted || e.break_end,
-                    durationSeconds: breakDur,
-                    breakDurationSeconds: breakDur,
-                    notes: '-'
-                });
-            }
         });
         
         // Sort by start time (most recent first)
@@ -726,13 +752,18 @@ const loadTimeEntries = async () => {
         const workHoursSum = timeEntriesRows.value
             .filter(row => row.name === 'Work Hours')
             .reduce((sum, row) => sum + (row.durationSeconds || 0), 0);
+        
+        // Calculate totalBreakSeconds as sum of all "Break" entries
+        const totalBreakSecondsFromRows = timeEntriesRows.value
+            .filter(row => row.name === 'Break')
+            .reduce((sum, row) => sum + (row.durationSeconds || 0), 0);
 
         // Use API-provided daily totals if available, otherwise calculate
         if (res.data?.daily_totals) {
-            // Override workSeconds with sum of Work Hours rows
+            // Override workSeconds and breakSeconds with sums from rows
             timeEntriesSummary.value = {
                 workSeconds: workHoursSum,
-                breakSeconds: res.data.daily_totals.break_seconds || 0,
+                breakSeconds: totalBreakSecondsFromRows,
                 lunchSeconds: res.data.daily_totals.lunch_seconds || 0,
                 tasksCount: res.data.daily_totals.tasks_count || 0,
                 status: res.data.daily_totals.status || 'No Entry',
@@ -749,7 +780,7 @@ const loadTimeEntries = async () => {
             }
             timeEntriesSummary.value = { 
                 workSeconds: workHoursSum, 
-                breakSeconds: totalBreakSeconds, 
+                breakSeconds: totalBreakSecondsFromRows, 
                 lunchSeconds: 0, 
                 tasksCount: timeEntriesRows.value.length, 
                 status, 
@@ -1034,7 +1065,10 @@ const formatTaskContent = (content: string | null | undefined) => {
                         <div class="px-4 py-5 sm:p-6">
                             <h3 class="text-xs font-semibold uppercase tracking-wide text-gray-500">Work Day Timer</h3>
                             <p class="mt-2 text-3xl font-bold text-gray-900">{{ runningDisplay }}</p>
-                            <p class="text-xs text-gray-500">{{ isOnBreak ? 'On Break' : isClockedIn ? 'Working' : 'Idle' }}</p>
+                            <p class="text-xs text-gray-500">{{ isClockedIn ? 'Working' : 'Idle' }}</p>
+                            <div v-if="isOnBreak" class="mt-2">
+                                <p class="text-sm text-gray-600">Break Timer: <span class="font-semibold">{{ breakDisplay }}</span></p>
+                            </div>
                             <div class="mt-4 flex flex-wrap gap-2">
                                 <button @click="toggleWork" :disabled="loading" :class="['rounded-md px-3 py-1.5 text-xs font-semibold text-white', isClockedIn ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700']">
                                     {{ isClockedIn ? 'Time Out' : 'Time In' }}
