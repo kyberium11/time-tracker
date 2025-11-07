@@ -14,7 +14,7 @@ class VerifyCsrfToken extends Middleware
      */
     protected $except = [
         // Temporarily exclude login to test - REMOVE AFTER TESTING
-        // 'login',
+        'login',
     ];
 
     /**
