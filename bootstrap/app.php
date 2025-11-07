@@ -18,9 +18,7 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
         
         // Use custom CSRF middleware
-        $middleware->validateCsrfTokens(except: [
-            'login', // Temporarily exclude login - REMOVE AFTER TESTING
-        ]);
+        // CSRF protection enabled for all routes
         
         // Allow stateful domains for API authentication
         $middleware->statefulApi();

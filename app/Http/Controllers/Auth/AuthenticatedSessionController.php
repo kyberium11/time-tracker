@@ -29,11 +29,32 @@ class AuthenticatedSessionController extends Controller
      */
     public function store(LoginRequest $request): RedirectResponse
     {
-        $request->authenticate();
+        try {
+            $request->authenticate();
 
-        $request->session()->regenerate();
+            $request->session()->regenerate();
 
-        return redirect()->intended(route('dashboard', absolute: false));
+            // For Inertia requests, use Inertia::location() for redirects
+            if ($request->header('X-Inertia')) {
+                return Inertia::location(route('dashboard', absolute: false));
+            }
+
+            return redirect()->intended(route('dashboard', absolute: false));
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            // Re-throw validation exceptions so Inertia can handle them
+            throw $e;
+        } catch (\Exception $e) {
+            // Log any other errors
+            \Log::error('Login error', [
+                'message' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+            
+            // Return validation error for Inertia
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'email' => 'An error occurred during login. Please try again.',
+            ]);
+        }
     }
 
     /**
