@@ -24,24 +24,50 @@ class VerifyCsrfToken extends Middleware
      */
     protected function tokensMatch($request)
     {
+        // Ensure session is started
+        if (!$request->hasSession()) {
+            \Log::warning('CSRF: No session available', [
+                'url' => $request->url(),
+                'method' => $request->method(),
+            ]);
+            return false;
+        }
+
         // Get the token from various sources
         $token = $request->input('_token') 
             ?: $request->header('X-CSRF-TOKEN')
             ?: $request->header('X-XSRF-TOKEN')
             ?: $request->cookie('XSRF-TOKEN');
 
-        // If still no token, try to get it from the session
-        if (!$token && $request->hasSession()) {
-            $token = $request->session()->token();
+        // Get session token
+        $sessionToken = $request->session()->token();
+
+        // If no token from request, use session token (for first request)
+        if (!$token) {
+            $token = $sessionToken;
         }
 
-        // Compare with session token
-        if (!$request->hasSession() || !is_string($request->session()->token())) {
+        // Compare tokens
+        if (!is_string($token) || !is_string($sessionToken)) {
+            \Log::warning('CSRF: Invalid token format', [
+                'token_type' => gettype($token),
+                'session_token_type' => gettype($sessionToken),
+            ]);
             return false;
         }
 
-        return is_string($token) &&
-               hash_equals($request->session()->token(), $token);
+        $matches = hash_equals($sessionToken, $token);
+        
+        if (!$matches) {
+            \Log::warning('CSRF: Token mismatch', [
+                'token_length' => strlen($token),
+                'session_token_length' => strlen($sessionToken),
+                'token_preview' => substr($token, 0, 10) . '...',
+                'session_token_preview' => substr($sessionToken, 0, 10) . '...',
+            ]);
+        }
+
+        return $matches;
     }
 
     /**
