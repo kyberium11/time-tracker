@@ -876,6 +876,100 @@ const isStatusPill = (status: string | null) => {
     const statusLower = status.toLowerCase().trim();
     return statusLower !== 'to do' && statusLower !== 'todo';
 };
+
+// Format task content for display
+const formatTaskContent = (content: string | null | undefined) => {
+    if (!content) return '';
+    
+    // First, split content into lines for better processing
+    const lines = content.split('\n');
+    const formattedLines: string[] = [];
+    let inList = false;
+    let listItems: string[] = [];
+    
+    for (let i = 0; i < lines.length; i++) {
+        const line = lines[i].trim();
+        if (!line) {
+            // Empty line - close list if open, add paragraph break
+            if (inList && listItems.length > 0) {
+                formattedLines.push(`<ul class="list-disc ml-6 mb-3 space-y-1">${listItems.join('')}</ul>`);
+                listItems = [];
+                inList = false;
+            }
+            if (formattedLines.length > 0 && !formattedLines[formattedLines.length - 1].startsWith('<')) {
+                formattedLines.push('</p><p class="mb-2">');
+            }
+            continue;
+        }
+        
+        // Check for headers
+        if (line.match(/^#{1,3}\s+/)) {
+            if (inList && listItems.length > 0) {
+                formattedLines.push(`<ul class="list-disc ml-6 mb-3 space-y-1">${listItems.join('')}</ul>`);
+                listItems = [];
+                inList = false;
+            }
+            if (line.startsWith('###')) {
+                formattedLines.push(`<h3 class="font-semibold text-gray-900 mt-4 mb-2 text-base">${line.replace(/^###\s+/, '')}</h3>`);
+            } else if (line.startsWith('##')) {
+                formattedLines.push(`<h2 class="font-bold text-gray-900 mt-5 mb-3 text-lg">${line.replace(/^##\s+/, '')}</h2>`);
+            } else if (line.startsWith('#')) {
+                formattedLines.push(`<h1 class="font-bold text-gray-900 mt-6 mb-4 text-xl">${line.replace(/^#\s+/, '')}</h1>`);
+            }
+            continue;
+        }
+        
+        // Check for bullet points
+        if (line.match(/^[\-\*•]\s+/)) {
+            if (!inList) {
+                inList = true;
+            }
+            const itemText = line.replace(/^[\-\*•]\s+/, '').trim();
+            listItems.push(`<li class="mb-1">${itemText}</li>`);
+            continue;
+        }
+        
+        // Check for numbered lists
+        if (line.match(/^\d+\.\s+/)) {
+            if (!inList) {
+                inList = true;
+            }
+            const itemText = line.replace(/^\d+\.\s+/, '').trim();
+            listItems.push(`<li class="mb-1 list-decimal">${itemText}</li>`);
+            continue;
+        }
+        
+        // Regular text line
+        if (inList && listItems.length > 0) {
+            formattedLines.push(`<ul class="list-disc ml-6 mb-3 space-y-1">${listItems.join('')}</ul>`);
+            listItems = [];
+            inList = false;
+        }
+        
+        // Process inline formatting
+        let processedLine = line
+            .replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold">$1</strong>')
+            .replace(/\*(.+?)\*/g, '<em class="italic">$1</em>');
+        
+        formattedLines.push(processedLine);
+    }
+    
+    // Close any open list
+    if (inList && listItems.length > 0) {
+        formattedLines.push(`<ul class="list-disc ml-6 mb-3 space-y-1">${listItems.join('')}</ul>`);
+    }
+    
+    // Join and wrap in paragraph
+    let result = formattedLines.join('<br>');
+    if (!result.startsWith('<')) {
+        result = '<p class="mb-2">' + result;
+    }
+    if (!result.endsWith('>')) {
+        result = result + '</p>';
+    }
+    
+    return result;
+};
 </script>
 
 <template>
@@ -1273,19 +1367,34 @@ const isStatusPill = (status: string | null) => {
 
             <!-- Task Details Modal -->
             <div v-if="showTaskModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
-                <div class="w-full max-w-lg rounded-lg bg-white shadow-lg">
-                    <div class="flex items-center justify-between border-b px-4 py-3">
+                <div class="w-full max-w-3xl max-h-[90vh] rounded-lg bg-white shadow-lg flex flex-col">
+                    <div class="flex items-center justify-between border-b px-4 py-3 flex-shrink-0">
                         <h4 class="text-md font-semibold">Task Details</h4>
-                        <button @click="showTaskModal = false" class="rounded-md bg-gray-100 px-2 py-1 text-xs">Close</button>
+                        <button @click="showTaskModal = false" class="rounded-md bg-gray-100 px-2 py-1 text-xs hover:bg-gray-200">Close</button>
                     </div>
-                    <div class="p-4 text-sm text-gray-700" v-if="taskDetails">
-                        <p class="font-medium mb-1">{{ taskDetails.task?.title }}</p>
-                        <p class="mb-2">Status: {{ taskDetails.task?.status }}</p>
-                        <p class="mb-2" v-if="taskDetails.clickup?.url">
-                            <a :href="taskDetails.clickup.url" target="_blank" class="text-indigo-600 hover:underline">Open in ClickUp</a>
-                        </p>
-                        <div class="prose max-w-none" v-if="taskDetails.clickup?.text_content">
-                            {{ taskDetails.clickup.text_content }}
+                    <div class="p-6 text-sm text-gray-700 overflow-y-auto flex-1" v-if="taskDetails">
+                        <div class="mb-4 pb-4 border-b">
+                            <h2 class="font-semibold text-lg text-gray-900 mb-2">{{ taskDetails.task?.title }}</h2>
+                            <div class="flex items-center gap-3 flex-wrap">
+                                <span v-if="taskDetails.task?.status" class="text-sm">
+                                    <span class="text-gray-600">Status:</span>
+                                    <span v-if="isStatusPill(taskDetails.task.status)" 
+                                          class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ml-1"
+                                          :class="getStatusClasses(taskDetails.task.status)">
+                                        {{ taskDetails.task.status }}
+                                    </span>
+                                    <span v-else class="ml-1 text-gray-700">{{ taskDetails.task.status }}</span>
+                                </span>
+                                <span v-if="taskDetails.clickup?.url">
+                                    <a :href="taskDetails.clickup.url" target="_blank" class="text-indigo-600 hover:underline text-sm font-medium">Open in ClickUp →</a>
+                                </span>
+                            </div>
+                        </div>
+                        <div v-if="taskDetails.clickup?.text_content" class="task-content">
+                            <div v-html="formatTaskContent(taskDetails.clickup.text_content)" class="prose prose-sm max-w-none"></div>
+                        </div>
+                        <div v-else class="text-gray-500 italic">
+                            No additional details available.
                         </div>
                     </div>
                 </div>
