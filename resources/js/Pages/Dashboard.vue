@@ -168,61 +168,71 @@ const calculateDuration = (start: string | null, end: string | null): string => 
     return `${hours}h ${minutes}m ${seconds}s`;
 };
 
-// Generate time events from current entry
-const timeEvents = computed<TimeEvent[]>(() => {
-    const events: TimeEvent[] = [];
+// Generate time events from current entry - formatted like user summary
+const todayTimeEntries = computed(() => {
+    const rows: any[] = [];
     
-    if (!currentEntry.value) return events;
+    if (!currentEntry.value) return rows;
     
     const entry = currentEntry.value;
     
-    // Clock In
-    events.push({
-        type: 'Clock In',
-        start: entry.clock_in || null,
-        end: null,
-        duration: '--',
-        status: entry.clock_in ? 'Completed' : 'Not started'
+    // Work Hours entry (if clocked in and out)
+    if (entry.clock_in && entry.clock_out) {
+        const workDur = Math.max(0, Math.floor((new Date(entry.clock_out).getTime() - new Date(entry.clock_in).getTime()) / 1000));
+        const bs = entry.break_start ? new Date(entry.break_start) : null;
+        const be = entry.break_end ? new Date(entry.break_end) : null;
+        let breakDur = 0;
+        if (bs && be) {
+            breakDur = Math.max(0, Math.floor((be.getTime() - bs.getTime()) / 1000));
+        }
+        const netWorkDur = Math.max(0, workDur - breakDur);
+        
+        rows.push({
+            name: 'Work Hours',
+            start: entry.clock_in,
+            end: entry.clock_out,
+            durationSeconds: netWorkDur,
+            breakDurationSeconds: breakDur,
+            notes: '-'
+        });
+    }
+    
+    // Break entry (if exists)
+    if (entry.break_start && entry.break_end) {
+        const breakDur = Math.max(0, Math.floor((new Date(entry.break_end).getTime() - new Date(entry.break_start).getTime()) / 1000));
+        rows.push({
+            name: 'Break',
+            start: entry.break_start,
+            end: entry.break_end,
+            durationSeconds: breakDur,
+            breakDurationSeconds: breakDur,
+            notes: '-'
+        });
+    }
+    
+    // Add task entries
+    taskEntries.value.forEach((t: any) => {
+        if (t.clock_in && t.clock_out) {
+            const taskDur = Math.max(0, Math.floor((new Date(t.clock_out).getTime() - new Date(t.clock_in).getTime()) / 1000));
+            rows.push({
+                name: t.task?.title || `Task #${t.task_id}`,
+                start: t.clock_in,
+                end: t.clock_out,
+                durationSeconds: taskDur,
+                breakDurationSeconds: 0,
+                notes: '-'
+            });
+        }
     });
     
-    // Break
-    if (entry.break_start || entry.break_end) {
-        events.push({
-            type: 'Break',
-            start: entry.break_start || null,
-            end: entry.break_end || null,
-            duration: entry.break_start && entry.break_end 
-                ? calculateDuration(entry.break_start, entry.break_end)
-                : entry.break_start ? 'In progress' : '--',
-            status: entry.break_start && entry.break_end ? 'Completed' : entry.break_start ? 'Active' : 'Scheduled'
-        });
-    }
+    // Sort by start time (most recent first)
+    rows.sort((a, b) => {
+        const da = new Date(a.start).getTime();
+        const db = new Date(b.start).getTime();
+        return (isNaN(db) ? 0 : db) - (isNaN(da) ? 0 : da);
+    });
     
-    // Lunch
-    if (entry.lunch_start || entry.lunch_end) {
-        events.push({
-            type: 'Lunch',
-            start: entry.lunch_start || null,
-            end: entry.lunch_end || null,
-            duration: entry.lunch_start && entry.lunch_end 
-                ? calculateDuration(entry.lunch_start, entry.lunch_end)
-                : entry.lunch_start ? 'In progress' : '--',
-            status: entry.lunch_start && entry.lunch_end ? 'Completed' : entry.lunch_start ? 'Active' : 'Scheduled'
-        });
-    }
-    
-    // Clock Out
-    if (entry.clock_out) {
-        events.push({
-            type: 'Clock Out',
-            start: entry.clock_out || null,
-            end: null,
-            duration: '--',
-            status: entry.clock_out ? 'Completed' : 'Pending'
-        });
-    }
-    
-    return events;
+    return rows;
 });
 
 onMounted(() => {
@@ -962,7 +972,6 @@ const isStatusPill = (status: string | null) => {
                             <p class="mt-2 text-3xl font-bold text-gray-900">{{ workingHoursToday }}<span class="text-sm font-normal text-gray-500"> / 8 Hours</span></p>
                             <div class="mt-4 flex space-x-2">
                                 <button @click="openDailyLogs" class="rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700">Daily Logs</button>
-                                <button class="rounded-md bg-yellow-500 px-3 py-1.5 text-xs font-semibold text-white hover:bg-yellow-600">Send Report</button>
                             </div>
                         </div>
                     </div>
@@ -1101,7 +1110,7 @@ const isStatusPill = (status: string | null) => {
                     <div class="px-4 py-5 sm:p-6">
                         <h3 class="text-lg font-medium leading-6 text-gray-900 mb-4">Today's Time Events</h3>
                         
-                        <div v-if="timeEvents.length === 0" class="text-center py-8 text-gray-500">
+                        <div v-if="todayTimeEntries.length === 0" class="text-center py-8 text-gray-500">
                             No time entries recorded today. Clock in to start tracking time.
                         </div>
                         
@@ -1109,68 +1118,22 @@ const isStatusPill = (status: string | null) => {
                             <table class="min-w-full divide-y divide-gray-200">
                                 <thead class="bg-gray-50">
                                     <tr>
-                                        <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                                            Event Type
-                                        </th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                                            Start Time
-                                        </th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                                            End Time
-                                        </th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                                            Duration
-                                        </th>
-                                        <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
-                                            Status
-                                        </th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Task</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Start Time</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">End Time</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Duration</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Break Duration</th>
+                                        <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Notes</th>
                                     </tr>
                                 </thead>
-                                <tbody class="divide-y divide-gray-200 bg-white">
-                                    <tr v-for="(event, index) in timeEvents" :key="index">
-                                        <td class="whitespace-nowrap px-6 py-4 text-sm font-medium text-gray-900">
-                                            {{ event.type }}
-                                        </td>
-                                        <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
-                                            {{ formatTime(event.start) }}
-                                        </td>
-                                        <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
-                                            {{ formatTime(event.end) }}
-                                        </td>
-                                        <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
-                                            {{ event.duration }}
-                                        </td>
-                                        <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
-                                            <div class="flex items-center space-x-2" v-if="userRole !== 'admin'">
-                                                <button @click="timeIn" :disabled="loading || isClockedIn" class="rounded-md bg-green-600 px-2 py-1 text-xs font-semibold text-white hover:bg-green-700">Time In</button>
-                                                <button @click="breakIn" :disabled="loading || !isClockedIn || isOnBreak" class="rounded-md bg-yellow-600 px-2 py-1 text-xs font-semibold text-white hover:bg-yellow-700">Break In</button>
-                                                <button @click="breakOut" :disabled="loading || !isOnBreak" class="rounded-md bg-orange-600 px-2 py-1 text-xs font-semibold text-white hover:bg-orange-700">Break Out</button>
-                                                <button @click="timeOut" :disabled="loading || !isClockedIn" class="rounded-md bg-red-600 px-2 py-1 text-xs font-semibold text-white hover:bg-red-700">Time Out</button>
-                                            </div>
-                                            <span v-else class="text-xs text-gray-400">Admin view</span>
-                                        </td>
-                                    </tr>
-                                    <!-- Task entries -->
-                                    <tr v-for="t in taskEntries" :key="`task-${t.id}`">
-                                        <td class="whitespace-nowrap px-6 py-4 text-sm font-medium text-gray-900">
-                                            Task: {{ t.task?.title || `#${t.task_id}` }}
-                                        </td>
-                                        <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
-                                            {{ formatTime(t.clock_in) }}
-                                        </td>
-                                        <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
-                                            {{ formatTime(t.clock_out) }}
-                                        </td>
-                                        <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
-                                            {{ t.clock_in && t.clock_out ? calculateDuration(t.clock_in, t.clock_out) : (t.clock_in ? 'In progress' : '--') }}
-                                        </td>
-                                        <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
-                                            <div class="flex items-center space-x-2" v-if="userRole !== 'admin'">
-                                                <button @click="play(t.task_id)" :disabled="loading" class="rounded-md bg-green-600 px-2 py-1 text-xs font-semibold text-white hover:bg-green-700">Play</button>
-                                                <button @click="stop()" :disabled="loading" class="rounded-md bg-red-600 px-2 py-1 text-xs font-semibold text-white hover:bg-red-700">Stop</button>
-                                            </div>
-                                            <span v-else class="text-xs text-gray-400">Admin view</span>
-                                        </td>
+                                <tbody class="divide-y divide-gray-200">
+                                    <tr v-for="(row, idx) in todayTimeEntries" :key="idx">
+                                        <td class="px-4 py-4 text-sm text-gray-900">{{ row.name }}</td>
+                                        <td class="px-4 py-4 text-sm text-gray-500">{{ formatTimeForEntries(row.start) }}</td>
+                                        <td class="px-4 py-4 text-sm text-gray-500">{{ formatTimeForEntries(row.end) }}</td>
+                                        <td class="px-4 py-4 text-sm text-gray-900 font-semibold">{{ formatSecondsToHHMMSS(row.durationSeconds) }}</td>
+                                        <td class="px-4 py-4 text-sm text-gray-500">{{ formatSecondsToHHMMSS(row.breakDurationSeconds || 0) }}</td>
+                                        <td class="px-4 py-4 text-sm text-gray-500">{{ row.notes || '-' }}</td>
                                     </tr>
                                 </tbody>
                             </table>
@@ -1279,29 +1242,27 @@ const isStatusPill = (status: string | null) => {
                         <button @click="showDailyLogs = false" class="rounded-md bg-gray-100 px-2 py-1 text-xs">Close</button>
                     </div>
                     <div class="p-4">
-                        <div v-if="!currentEntry" class="text-gray-500 text-sm">No entry today.</div>
+                        <div v-if="todayTimeEntries.length === 0" class="text-gray-500 text-sm">No entry today.</div>
                         <div v-else class="overflow-x-auto">
                             <table class="min-w-full divide-y divide-gray-200">
                                 <thead class="bg-gray-50">
                                     <tr>
-                                        <th class="px-4 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Event</th>
+                                        <th class="px-4 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Task</th>
                                         <th class="px-4 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Start Time</th>
                                         <th class="px-4 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500">End Time</th>
                                         <th class="px-4 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Duration</th>
+                                        <th class="px-4 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Break Duration</th>
+                                        <th class="px-4 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Notes</th>
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-gray-200 bg-white">
-                                    <tr v-for="(event, idx) in timeEvents" :key="idx">
-                                        <td class="px-4 py-2 text-sm text-gray-900">{{ event.type }}</td>
-                                        <td class="px-4 py-2 text-sm text-gray-700">{{ formatTime(event.start) }}</td>
-                                        <td class="px-4 py-2 text-sm text-gray-700">{{ formatTime(event.end) }}</td>
-                                        <td class="px-4 py-2 text-sm text-gray-700">{{ event.duration }}</td>
-                                    </tr>
-                                    <tr v-for="t in taskEntries" :key="`modal-task-${t.id}`">
-                                        <td class="px-4 py-2 text-sm text-gray-900">Task: {{ t.task?.title || `#${t.task_id}` }}</td>
-                                        <td class="px-4 py-2 text-sm text-gray-700">{{ formatTime(t.clock_in) }}</td>
-                                        <td class="px-4 py-2 text-sm text-gray-700">{{ formatTime(t.clock_out) }}</td>
-                                        <td class="px-4 py-2 text-sm text-gray-700">{{ t.clock_in && t.clock_out ? calculateDuration(t.clock_in, t.clock_out) : (t.clock_in ? 'In progress' : '--') }}</td>
+                                    <tr v-for="(row, idx) in todayTimeEntries" :key="idx">
+                                        <td class="px-4 py-2 text-sm text-gray-900">{{ row.name }}</td>
+                                        <td class="px-4 py-2 text-sm text-gray-700">{{ formatTimeForEntries(row.start) }}</td>
+                                        <td class="px-4 py-2 text-sm text-gray-700">{{ formatTimeForEntries(row.end) }}</td>
+                                        <td class="px-4 py-2 text-sm text-gray-700 font-semibold">{{ formatSecondsToHHMMSS(row.durationSeconds) }}</td>
+                                        <td class="px-4 py-2 text-sm text-gray-700">{{ formatSecondsToHHMMSS(row.breakDurationSeconds || 0) }}</td>
+                                        <td class="px-4 py-2 text-sm text-gray-700">{{ row.notes || '-' }}</td>
                                     </tr>
                                 </tbody>
                             </table>
