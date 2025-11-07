@@ -22,6 +22,7 @@ interface TaskItem {
     priority?: string | null;
     due_date?: string | null;
     clickup_task_id: string;
+    estimated_time?: number | null; // in milliseconds
 }
 
 interface TimeEvent {
@@ -811,6 +812,13 @@ const formatSecondsToHHMMSS = (sec: number | null | undefined) => {
     return `${pad(h)}:${pad(m)}:${pad(s)}`;
 };
 
+// Format estimated time from milliseconds to HH:MM:SS
+const formatEstimatedTime = (ms: number | null | undefined) => {
+    if (!ms || ms === 0) return '--';
+    const totalSeconds = Math.floor(ms / 1000);
+    return formatSecondsToHHMMSS(totalSeconds);
+};
+
 // Status pill styling helper
 const getStatusClasses = (status: string | null) => {
     if (!status) return '';
@@ -1041,7 +1049,9 @@ const formatTaskContent = (content: string | null | undefined) => {
                                 <button @click="openTaskDetails(runningTaskId)" class="text-indigo-600 hover:underline text-sm">
                                     {{ tasks.find(t => t.id === runningTaskId)?.title || ('#' + runningTaskId) }}
                                 </button>
-                                <p class="text-2xl font-bold text-gray-900 mt-1">{{ runningTaskDisplay }}</p>
+                                <p class="text-2xl font-bold text-gray-900 mt-1">
+                                    {{ runningTaskDisplay }}<span v-if="tasks.find(t => t.id === runningTaskId)?.estimated_time" class="text-sm font-normal text-gray-500"> / {{ formatEstimatedTime(tasks.find(t => t.id === runningTaskId)?.estimated_time) }}</span>
+                                </p>
                                 <div class="mt-3">
                                     <button @click="pause()" :disabled="loading" class="rounded-md bg-yellow-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-yellow-700">Pause</button>
                                 </div>
@@ -1142,6 +1152,7 @@ const formatTaskContent = (content: string | null | undefined) => {
                                         <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Task</th>
                                         <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Status</th>
                                         <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Due Date</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Estimated Time</th>
                                         <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Priority</th>
                                         <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Actions</th>
                                     </tr>
@@ -1164,6 +1175,7 @@ const formatTaskContent = (content: string | null | undefined) => {
                                             </span>
                                         </td>
                                         <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-900">{{ t.due_date ? new Date(t.due_date).toLocaleDateString() : '--' }}</td>
+                                        <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500">{{ formatEstimatedTime(t.estimated_time) }}</td>
                                         <td class="whitespace-nowrap px-6 py-4 text-sm">
                                             <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold" :class="getPriorityClasses(t.priority || null)">
                                                 {{ t.priority || 'None' }}

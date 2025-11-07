@@ -19,7 +19,7 @@ class TaskController extends Controller
     {
         $tasks = Task::where('user_id', Auth::id())
             ->orderBy('updated_at', 'desc')
-            ->get(['id', 'title', 'status', 'priority', 'due_date', 'clickup_task_id']);
+            ->get(['id', 'title', 'status', 'priority', 'due_date', 'clickup_task_id', 'estimated_time']);
 
         return response()->json($tasks);
     }
@@ -132,6 +132,7 @@ class TaskController extends Controller
                     ),
                     'clickup_parent_id' => (string) (data_get($t, 'parent') ?: null),
                     'due_date' => ($ms = data_get($t, 'due_date')) ? Carbon::createFromTimestampMs((int)$ms) : null,
+                    'estimated_time' => ($est = data_get($t, 'time_estimate')) ? (int)$est : null,
                 ]
             );
             $upserted++;

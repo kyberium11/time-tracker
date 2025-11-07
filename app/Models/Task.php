@@ -16,6 +16,7 @@ class Task extends Model
         'clickup_task_id',
         'clickup_parent_id',
         'due_date',
+        'estimated_time',
     ];
 
     protected $casts = [
