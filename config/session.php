@@ -169,7 +169,7 @@ return [
     |
     */
 
-    'secure' => env('SESSION_SECURE_COOKIE', str_starts_with(env('APP_URL', 'http://localhost'), 'https://')),
+    'secure' => env('SESSION_SECURE_COOKIE', str_starts_with(rtrim(env('APP_URL', 'http://localhost'), '/'), 'https://')),
 
     /*
     |--------------------------------------------------------------------------
