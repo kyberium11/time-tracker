@@ -722,10 +722,16 @@ const loadTimeEntries = async () => {
             return (isNaN(db) ? 0 : db) - (isNaN(da) ? 0 : da);
         });
 
+        // Calculate workSeconds as sum of all "Work Hours" entries
+        const workHoursSum = timeEntriesRows.value
+            .filter(row => row.name === 'Work Hours')
+            .reduce((sum, row) => sum + (row.durationSeconds || 0), 0);
+
         // Use API-provided daily totals if available, otherwise calculate
         if (res.data?.daily_totals) {
+            // Override workSeconds with sum of Work Hours rows
             timeEntriesSummary.value = {
-                workSeconds: res.data.daily_totals.work_seconds || 0,
+                workSeconds: workHoursSum,
                 breakSeconds: res.data.daily_totals.break_seconds || 0,
                 lunchSeconds: res.data.daily_totals.lunch_seconds || 0,
                 tasksCount: res.data.daily_totals.tasks_count || 0,
@@ -734,8 +740,7 @@ const loadTimeEntries = async () => {
             };
         } else {
             const eight = 8 * 3600;
-            const netWork = Math.max(0, rawWorkSeconds - totalBreakSeconds);
-            const overtime = Math.max(0, netWork - eight);
+            const overtime = Math.max(0, workHoursSum - eight);
             let status = 'No Entry';
             if (firstIn) {
                 const manilaHours = ((firstIn as Date).getUTCHours() + 8) % 24;
@@ -743,7 +748,7 @@ const loadTimeEntries = async () => {
                 status = (manilaHours < 8 || (manilaHours === 8 && manilaMinutes <= 30)) ? 'Perfect' : 'Late';
             }
             timeEntriesSummary.value = { 
-                workSeconds: netWork, 
+                workSeconds: workHoursSum, 
                 breakSeconds: totalBreakSeconds, 
                 lunchSeconds: 0, 
                 tasksCount: timeEntriesRows.value.length, 

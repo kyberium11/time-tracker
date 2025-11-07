@@ -203,9 +203,13 @@ const loadUserDaily = async () => {
             return (isNaN(db) ? 0 : db) - (isNaN(da) ? 0 : da);
         });
 
+        // Calculate workSeconds as sum of all "Work Hours" entries
+        const workHoursSum = summaryRows.value
+            .filter(row => row.name === 'Work Hours')
+            .reduce((sum, row) => sum + (row.durationSeconds || 0), 0);
+
         const eight = 8 * 3600;
-        const netWork = Math.max(0, rawWorkSeconds - totalBreakSeconds);
-        const overtime = Math.max(0, netWork - eight);
+        const overtime = Math.max(0, workHoursSum - eight);
         let status = 'No Entry';
         if (firstIn) {
             // Compare using Manila local time 08:30
@@ -214,7 +218,7 @@ const loadUserDaily = async () => {
             status = (manilaHours < 8 || (manilaHours === 8 && manilaMinutes <= 30)) ? 'Perfect' : 'Late';
         }
 
-        dailyTotals.value = { workSeconds: netWork, breakSeconds: totalBreakSeconds, lunchSeconds: 0, tasksCount: summaryRows.value.length, status, overtimeSeconds: overtime };
+        dailyTotals.value = { workSeconds: workHoursSum, breakSeconds: totalBreakSeconds, lunchSeconds: 0, tasksCount: summaryRows.value.length, status, overtimeSeconds: overtime };
     } catch (e) {
         console.error('Error loading user daily analytics', e);
         sessions.value = [];

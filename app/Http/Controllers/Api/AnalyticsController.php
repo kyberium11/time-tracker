@@ -278,6 +278,7 @@ class AnalyticsController extends Controller
         });
 
         // Calculate daily totals
+        // Only count entries without tasks as "Work Hours"
         $workSeconds = 0;
         $breakSeconds = 0;
         $lunchSeconds = 0;
@@ -286,7 +287,11 @@ class AnalyticsController extends Controller
         $lastOut = null;
         
         foreach ($entries as $entry) {
-            if ($entry->clock_in && $entry->clock_out) {
+            // Check if this entry has a task
+            $hasTask = $entry->task && ($entry->task->title || $entry->task->name);
+            
+            // Only count entries without tasks as "Work Hours"
+            if ($entry->clock_in && $entry->clock_out && !$hasTask) {
                 $clockInUtc = \Carbon\Carbon::parse($entry->clock_in);
                 $clockOutUtc = \Carbon\Carbon::parse($entry->clock_out);
                 $seconds = max(0, $clockOutUtc->diffInSeconds($clockInUtc));
@@ -299,21 +304,26 @@ class AnalyticsController extends Controller
                     $lastOut = $clockOutUtc;
                 }
                 
+                // Subtract breaks from work hours
                 if ($entry->break_start && $entry->break_end) {
                     $bs = \Carbon\Carbon::parse($entry->break_start);
                     $be = \Carbon\Carbon::parse($entry->break_end);
-                    $breakSeconds += max(0, $be->diffInSeconds($bs));
-                    $workSeconds -= max(0, $be->diffInSeconds($bs));
+                    $breakDur = max(0, $be->diffInSeconds($bs));
+                    $breakSeconds += $breakDur;
+                    $workSeconds -= $breakDur;
                 }
                 
+                // Subtract lunch from work hours
                 if ($entry->lunch_start && $entry->lunch_end) {
                     $ls = \Carbon\Carbon::parse($entry->lunch_start);
                     $le = \Carbon\Carbon::parse($entry->lunch_end);
-                    $lunchSeconds += max(0, $le->diffInSeconds($ls));
-                    $workSeconds -= max(0, $le->diffInSeconds($ls));
+                    $lunchDur = max(0, $le->diffInSeconds($ls));
+                    $lunchSeconds += $lunchDur;
+                    $workSeconds -= $lunchDur;
                 }
             }
-            if ($entry->task && ($entry->task->title || $entry->task->name)) {
+            
+            if ($hasTask) {
                 $tasksCount++;
             }
         }
