@@ -40,7 +40,7 @@ const showingNavigationDropdown = ref(false);
                                 </NavLink>
                                 
                                 <NavLink
-                                    v-if="$page.props.auth.user.role === 'admin'"
+                                    v-if="$page.props.auth.user.role === 'admin' || $page.props.auth.user.role === 'developer'"
                                     :href="route('users.index')"
                                     :active="route().current('users.*')"
                                 >
@@ -48,7 +48,7 @@ const showingNavigationDropdown = ref(false);
                                 </NavLink>
                                 
                                 <NavLink
-                                    v-if="$page.props.auth.user.role === 'admin'"
+                                    v-if="$page.props.auth.user.role === 'admin' || $page.props.auth.user.role === 'developer'"
                                     :href="route('teams.index')"
                                     :active="route().current('teams.*')"
                                 >
@@ -56,7 +56,7 @@ const showingNavigationDropdown = ref(false);
                                 </NavLink>
                                 
                                 <NavLink
-                                    v-if="$page.props.auth.user.role === 'admin' || $page.props.auth.user.role === 'manager'"
+                                    v-if="$page.props.auth.user.role === 'admin' || $page.props.auth.user.role === 'manager' || $page.props.auth.user.role === 'developer'"
                                     :href="route('analytics.index')"
                                     :active="route().current('analytics.*')"
                                 >
@@ -171,7 +171,7 @@ const showingNavigationDropdown = ref(false);
                         </ResponsiveNavLink>
                         
                         <ResponsiveNavLink
-                            v-if="$page.props.auth.user.role === 'admin'"
+                            v-if="$page.props.auth.user.role === 'admin' || $page.props.auth.user.role === 'developer'"
                             :href="route('users.index')"
                             :active="route().current('users.*')"
                         >
@@ -179,7 +179,7 @@ const showingNavigationDropdown = ref(false);
                         </ResponsiveNavLink>
                         
                         <ResponsiveNavLink
-                            v-if="$page.props.auth.user.role === 'admin'"
+                            v-if="$page.props.auth.user.role === 'admin' || $page.props.auth.user.role === 'developer'"
                             :href="route('teams.index')"
                             :active="route().current('teams.*')"
                         >
@@ -187,7 +187,7 @@ const showingNavigationDropdown = ref(false);
                         </ResponsiveNavLink>
                         
                         <ResponsiveNavLink
-                            v-if="$page.props.auth.user.role === 'admin' || $page.props.auth.user.role === 'manager'"
+                            v-if="$page.props.auth.user.role === 'admin' || $page.props.auth.user.role === 'manager' || $page.props.auth.user.role === 'developer'"
                             :href="route('analytics.index')"
                             :active="route().current('analytics.*')"
                         >
