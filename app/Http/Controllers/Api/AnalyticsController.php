@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Task;
 use App\Models\TimeEntry;
 use App\Models\User;
 use App\Models\UserActivityLog;
@@ -1212,5 +1213,185 @@ class AnalyticsController extends Controller
             ->sortByDesc('total_hours')
             ->take(10)
             ->values();
+    }
+
+    /**
+     * Get efficiency analytics data.
+     */
+    public function efficiency(Request $request)
+    {
+        try {
+            // Get all tasks with estimated time
+            $tasks = Task::whereNotNull('estimated_time')
+                ->with(['user', 'timeEntries' => function ($query) {
+                    $query->whereNotNull('clock_out');
+                }])
+                ->get();
+
+            $taskData = [];
+            $totalEstimatedHours = 0;
+            $totalTrackedHours = 0;
+            $tasksWithOverrun = 0;
+            $efficiencySum = 0;
+            $validTasksCount = 0;
+
+            // Process each task
+            foreach ($tasks as $task) {
+                // Convert estimated_time from milliseconds to hours
+                $estimatedHours = $task->estimated_time / (1000 * 60 * 60);
+                
+                // Calculate tracked time from time entries
+                $trackedHours = $task->timeEntries->sum('total_hours') ?? 0;
+                
+                // Calculate efficiency: (EstimatedTime / TrackedTime) * 100
+                // If tracked time is 0, efficiency is undefined
+                $efficiency = $trackedHours > 0 ? ($estimatedHours / $trackedHours) * 100 : null;
+                
+                // Determine status
+                $status = 'Efficient';
+                if ($efficiency !== null) {
+                    if ($efficiency < 90) {
+                        $status = 'Overrun';
+                        $tasksWithOverrun++;
+                    } elseif ($efficiency < 100) {
+                        $status = 'At Risk';
+                    }
+                }
+
+                // For summary calculations, only include tasks with tracked time
+                if ($trackedHours > 0 && $efficiency !== null) {
+                    $totalEstimatedHours += $estimatedHours;
+                    $totalTrackedHours += $trackedHours;
+                    $efficiencySum += $efficiency;
+                    $validTasksCount++;
+                }
+
+                $taskData[] = [
+                    'id' => $task->id,
+                    'task_name' => $task->title,
+                    'assigned_to' => $task->user ? $task->user->name : 'Unassigned',
+                    'project' => $task->clickup_parent_id ? "Project #{$task->clickup_parent_id}" : 'N/A',
+                    'estimated_time' => round($estimatedHours, 2),
+                    'tracked_time' => round($trackedHours, 2),
+                    'efficiency' => $efficiency !== null ? round($efficiency, 2) : null,
+                    'status' => $status,
+                ];
+            }
+
+            // Calculate summary statistics
+            $averageEfficiency = $validTasksCount > 0 ? $efficiencySum / $validTasksCount : 0;
+            $overrunRate = count($tasks) > 0 ? ($tasksWithOverrun / count($tasks)) * 100 : 0;
+
+            // Prepare user efficiency data for bar chart
+            $userEfficiency = [];
+            $userData = [];
+            foreach ($tasks as $task) {
+                if (!$task->user) continue;
+                
+                $userId = $task->user->id;
+                $userName = $task->user->name;
+                
+                if (!isset($userData[$userId])) {
+                    $userData[$userId] = [
+                        'name' => $userName,
+                        'estimated' => 0,
+                        'tracked' => 0,
+                    ];
+                }
+                
+                $estimatedHours = $task->estimated_time / (1000 * 60 * 60);
+                $trackedHours = $task->timeEntries->sum('total_hours') ?? 0;
+                
+                $userData[$userId]['estimated'] += $estimatedHours;
+                $userData[$userId]['tracked'] += $trackedHours;
+            }
+
+            foreach ($userData as $userId => $data) {
+                $efficiency = $data['tracked'] > 0 ? ($data['estimated'] / $data['tracked']) * 100 : 0;
+                $userEfficiency[] = [
+                    'user' => $data['name'],
+                    'efficiency' => round($efficiency, 2),
+                ];
+            }
+
+            // Sort by efficiency descending
+            usort($userEfficiency, function ($a, $b) {
+                return $b['efficiency'] <=> $a['efficiency'];
+            });
+
+            // Prepare trend data (average efficiency over time)
+            // Group by week for the last 12 weeks
+            $trendData = [];
+            $weeks = [];
+            for ($i = 11; $i >= 0; $i--) {
+                $weekStart = now()->subWeeks($i)->startOfWeek();
+                $weekEnd = $weekStart->copy()->endOfWeek();
+                $weeks[] = [
+                    'start' => $weekStart,
+                    'end' => $weekEnd,
+                    'label' => $weekStart->format('M d'),
+                ];
+            }
+
+            foreach ($weeks as $week) {
+                $weekTasks = Task::whereNotNull('estimated_time')
+                    ->whereHas('timeEntries', function ($query) use ($week) {
+                        $query->whereNotNull('clock_out')
+                            ->whereBetween('date', [$week['start']->toDateString(), $week['end']->toDateString()]);
+                    })
+                    ->with(['timeEntries' => function ($query) use ($week) {
+                        $query->whereNotNull('clock_out')
+                            ->whereBetween('date', [$week['start']->toDateString(), $week['end']->toDateString()]);
+                    }])
+                    ->get();
+
+                $weekEstimated = 0;
+                $weekTracked = 0;
+                $weekValidCount = 0;
+
+                foreach ($weekTasks as $task) {
+                    $estimatedHours = $task->estimated_time / (1000 * 60 * 60);
+                    $trackedHours = $task->timeEntries->sum('total_hours') ?? 0;
+                    
+                    if ($trackedHours > 0) {
+                        $weekEstimated += $estimatedHours;
+                        $weekTracked += $trackedHours;
+                        $weekValidCount++;
+                    }
+                }
+
+                $weekEfficiency = $weekTracked > 0 && $weekValidCount > 0 
+                    ? ($weekEstimated / $weekTracked) * 100 
+                    : null;
+
+                $trendData[] = [
+                    'week' => $week['label'],
+                    'efficiency' => $weekEfficiency !== null ? round($weekEfficiency, 2) : null,
+                ];
+            }
+
+            return response()->json([
+                'summary' => [
+                    'average_efficiency' => round($averageEfficiency, 2),
+                    'total_estimated_time' => round($totalEstimatedHours, 2),
+                    'total_tracked_time' => round($totalTrackedHours, 2),
+                    'overrun_rate' => round($overrunRate, 2),
+                ],
+                'tasks' => $taskData,
+                'user_efficiency' => $userEfficiency,
+                'trend' => $trendData,
+            ]);
+        } catch (\Exception $e) {
+            \Log::error('Efficiency analytics error', [
+                'message' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine(),
+                'trace' => $e->getTraceAsString(),
+            ]);
+            return response()->json([
+                'error' => 'Failed to load efficiency data',
+                'details' => $e->getMessage(),
+            ], 500);
+        }
     }
 }

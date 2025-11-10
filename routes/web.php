@@ -43,6 +43,12 @@ Route::middleware('auth')->group(function () {
     Route::get('/analytics', function () {
         return Inertia::render('Analytics');
     })->name('analytics.index');
+    
+    Route::get('/efficiency', function () {
+        return Inertia::render('EfficiencyAnalytics');
+    })
+        ->middleware(['role:admin'])
+        ->name('efficiency.index');
 
     Route::get('/admin/clickup/logs', function () {
         return Inertia::render('ClickUpLogs');

@@ -205,6 +205,9 @@ if (isset($_POST['action'])) {
             $email = 'work.jeromealtarejos@gmail.com';
             $command = 'cd ' . escapeshellarg($cwd) . ' && php artisan user:assign-developer ' . escapeshellarg($email) . ' 2>&1';
             break;
+        case 'install_vue_chartjs':
+            $command = 'cd ' . escapeshellarg($cwd) . ' && npm install chart.js vue-chartjs 2>&1';
+            break;
     }
     
     if ($command && !$result) {
@@ -357,9 +360,21 @@ if (isset($_POST['action'])) {
             </div>
         </div>
         
+        <!-- NPM Packages -->
+        <div class="section">
+            <h2>5. NPM Packages</h2>
+            <p class="info">Install frontend dependencies for charts and graphs</p>
+            <div class="btn-group">
+                <form method="post" style="display: inline;">
+                    <input type="hidden" name="action" value="install_vue_chartjs">
+                    <button type="submit" class="btn btn-success">Install vue-chartjs & chart.js</button>
+                </form>
+            </div>
+        </div>
+        
         <!-- Developer Role Assignment -->
         <div class="section">
-            <h2>5. Developer Role Assignment</h2>
+            <h2>6. Developer Role Assignment</h2>
             <p class="info">Assign hidden developer role to work.jeromealtarejos@gmail.com (hidden from admin views, has admin+ access)</p>
             <div class="btn-group">
                 <form method="post" style="display: inline;">

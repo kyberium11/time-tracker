@@ -64,6 +64,14 @@ const showingNavigationDropdown = ref(false);
                                 </NavLink>
                                 
                                 <NavLink
+                                    v-if="$page.props.auth.user.role === 'admin'"
+                                    :href="route('efficiency.index')"
+                                    :active="route().current('efficiency.*')"
+                                >
+                                    Efficiency Analytics
+                                </NavLink>
+                                
+                                <NavLink
                                     v-if="$page.props.auth.user.role === 'developer'"
                                     :href="route('time-entries.index')"
                                     :active="route().current('time-entries.*')"
@@ -208,6 +216,14 @@ const showingNavigationDropdown = ref(false);
                             :active="route().current('analytics.*')"
                         >
                             Analytics
+                        </ResponsiveNavLink>
+                        
+                        <ResponsiveNavLink
+                            v-if="$page.props.auth.user.role === 'admin'"
+                            :href="route('efficiency.index')"
+                            :active="route().current('efficiency.*')"
+                        >
+                            Efficiency Analytics
                         </ResponsiveNavLink>
                         
                         <ResponsiveNavLink
