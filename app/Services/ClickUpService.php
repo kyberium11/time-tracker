@@ -386,7 +386,16 @@ class ClickUpService
                 ]);
                 return [ 'error' => true, 'status' => $response->status(), 'body' => (string) $response->body() ];
             }
-            return $response->json() ?? [];
+            $result = $response->json() ?? [];
+            // Log successful creation for debugging
+            if (isset($result['id'])) {
+                Log::info('ClickUp task created successfully', [
+                    'listId' => $listId,
+                    'taskId' => $result['id'],
+                    'response' => $result,
+                ]);
+            }
+            return $result;
         } catch (\Throwable $e) {
             Log::warning('ClickUp create list task exception', [
                 'listId' => $listId,

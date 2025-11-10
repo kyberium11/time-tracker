@@ -476,13 +476,22 @@ class TimeEntryController extends Controller
             $clickupTaskIdForUrl = (string) ($open->task?->clickup_task_id ?? '');
             $taskUrl = $clickupTaskIdForUrl ? ('https://app.clickup.com/t/' . $clickupTaskIdForUrl) : (Carbon::parse($open->date)->toDateString() . ' | Task #' . $open->task_id);
             $taskName = $taskUrl;
+            
+            // Calculate values first
+            $clickupTaskId = (string) ($open->task?->clickup_task_id ?? '');
+            $start = Carbon::parse($open->clock_in);
+            $end = Carbon::parse($open->clock_out);
+            $durationSeconds = max(1, $start->diffInSeconds($end));
+            $totalMins = round($durationSeconds / 60, 3); // minutes with second-level precision
+            
             // Use Asia/Manila timezone for description to match custom fields
             $manilaTz = 'Asia/Manila';
-            $startManila = Carbon::parse($open->clock_in)->setTimezone($manilaTz);
-            $endManila = Carbon::parse($open->clock_out)->setTimezone($manilaTz);
+            $startManila = $start->clone()->setTimezone($manilaTz);
+            $endManila = $end->clone()->setTimezone($manilaTz);
             $durationFormatted = $this->formatDurationSeconds($durationSeconds);
             $timeInFormatted = $startManila->format('M d,Y H:i:s');
             $timeOutFormatted = $endManila->format('M d, Y H:i:s');
+            $notes = "Time Tracked: {$durationFormatted} by {$user->name} ({$timeInFormatted} - {$timeOutFormatted})";
             
             $descParts = [
                 'Task ID: ' . ($open->task?->clickup_task_id ?? 'n/a'),
@@ -499,23 +508,6 @@ class TimeEntryController extends Controller
             $cfTimeOut = env('CLICKUP_REPORT_CF_TIME_OUT');
             $cfTotalMins = env('CLICKUP_REPORT_CF_TOTAL_MINS');
             $cfNotes = env('CLICKUP_REPORT_CF_NOTES');
-
-            $clickupTaskId = (string) ($open->task?->clickup_task_id ?? '');
-            $start = Carbon::parse($open->clock_in);
-            $end = Carbon::parse($open->clock_out);
-            $durationSeconds = max(1, $start->diffInSeconds($end));
-            $totalMins = round($durationSeconds / 60, 3); // minutes with second-level precision
-            
-            // Use Asia/Manila timezone for Time In/Time Out and Notes
-            $manilaTz = 'Asia/Manila';
-            $startManila = $start->clone()->setTimezone($manilaTz);
-            $endManila = $end->clone()->setTimezone($manilaTz);
-            
-            // Format notes as "Time Tracked: +0h0m0s by User Name (Nov 10,2025 10:37:00 - Nov 10, 2025 10:37:00)"
-            $durationFormatted = $this->formatDurationSeconds($durationSeconds);
-            $timeInFormatted = $startManila->format('M d,Y H:i:s');
-            $timeOutFormatted = $endManila->format('M d, Y H:i:s');
-            $notes = "Time Tracked: {$durationFormatted} by {$user->name} ({$timeInFormatted} - {$timeOutFormatted})";
             
             // For Date/Time fields, use Unix timestamp in milliseconds; for text fields, use formatted string in Manila timezone
             // Format: "Nov 10,2025 10:37:00" (no space after comma)
@@ -541,7 +533,15 @@ class TimeEntryController extends Controller
                 'custom_fields' => $customFields,
             ];
             $created = $clickUp->createListTask((string) $reportListId, $createPayload);
-            $reportTaskId = is_array($created) ? ($created['id'] ?? null) : null;
+            // ClickUp returns task object with 'id' field - could be numeric or custom ID
+            $reportTaskId = null;
+            if (is_array($created) && !isset($created['error'])) {
+                $reportTaskId = $created['id'] ?? null;
+                // If it's a nested response, check for task object
+                if (!$reportTaskId && isset($created['task'])) {
+                    $reportTaskId = $created['task']['id'] ?? null;
+                }
+            }
 
             if (!$reportTaskId) {
                 $this->logActivity('clickup_report_row_error', 'Failed creating report row', [
@@ -775,7 +775,15 @@ class TimeEntryController extends Controller
         ];
 
         $created = $clickUp->createListTask((string) $reportListId, $createPayload);
-        $reportTaskId = is_array($created) ? ($created['id'] ?? null) : null;
+        // ClickUp returns task object with 'id' field - could be numeric or custom ID
+        $reportTaskId = null;
+        if (is_array($created) && !isset($created['error'])) {
+            $reportTaskId = $created['id'] ?? null;
+            // If it's a nested response, check for task object
+            if (!$reportTaskId && isset($created['task'])) {
+                $reportTaskId = $created['task']['id'] ?? null;
+            }
+        }
         if (!$reportTaskId) {
             $this->logActivity('clickup_report_row_error', 'Failed creating report row', [
                 'listId' => (string) $reportListId,
