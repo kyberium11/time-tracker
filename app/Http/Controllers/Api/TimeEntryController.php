@@ -534,13 +534,20 @@ class TimeEntryController extends Controller
             ];
             $created = $clickUp->createListTask((string) $reportListId, $createPayload);
             // ClickUp returns task object with 'id' field - could be numeric or custom ID
+            // For custom field updates, we may need the numeric ID instead of custom ID
             $reportTaskId = null;
             if (is_array($created) && !isset($created['error'])) {
+                // Try to get numeric ID first (for API updates), fallback to custom ID
                 $reportTaskId = $created['id'] ?? null;
                 // If it's a nested response, check for task object
                 if (!$reportTaskId && isset($created['task'])) {
                     $reportTaskId = $created['task']['id'] ?? null;
                 }
+                // Log the response structure for debugging
+                $this->logActivity('clickup_task_created_response', 'Task creation response', [
+                    'response' => $created,
+                    'extractedId' => $reportTaskId,
+                ]);
             }
 
             if (!$reportTaskId) {
