@@ -275,10 +275,14 @@ class ClickUpService
         $base = 'https://api.clickup.com/api/v2/task/' . $taskId . '/field/' . $fieldId;
         $teamId = env('CLICKUP_TEAM_ID');
         // If $taskId is numeric, don't use custom_task_ids flag
+        // For alphanumeric task IDs (custom IDs), we need custom_task_ids=true and team_id
         $useCustomIds = !ctype_digit($taskId);
         $query = [];
-        if ($useCustomIds) { $query['custom_task_ids'] = 'true'; }
-        if ($teamId) { $query['team_id'] = $teamId; }
+        if ($useCustomIds) { 
+            $query['custom_task_ids'] = 'true';
+            // team_id is required when using custom_task_ids
+            if ($teamId) { $query['team_id'] = $teamId; }
+        }
 
         try {
             // For Date/Time fields, include value_options with time: true

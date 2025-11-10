@@ -515,14 +515,14 @@ class TimeEntryController extends Controller
             $timeOutText = $endManila->format('Y-m-d H:i:s') . ' ' . $manilaTz;
 
             $customFields = [];
-            if ($cfTaskId) { $customFields[] = ['id' => (string) $cfTaskId, 'value' => $clickupTaskId]; }
+            // When creating tasks, ClickUp requires all custom field values to be strings
+            if ($cfTaskId) { $customFields[] = ['id' => (string) $cfTaskId, 'value' => (string) $clickupTaskId]; }
             if ($cfUser) { $customFields[] = ['id' => (string) $cfUser, 'value' => (string) $user->name]; }
-            // Note: Date/Time fields in ClickUp require Unix timestamp in milliseconds
-            // If these are text fields, they'll be updated via updateTaskCustomField with text format
-            if ($cfTimeIn) { $customFields[] = ['id' => (string) $cfTimeIn, 'value' => $timeInMs]; }
-            if ($cfTimeOut) { $customFields[] = ['id' => (string) $cfTimeOut, 'value' => $timeOutMs]; }
-            if ($cfTotalMins) { $customFields[] = ['id' => (string) $cfTotalMins, 'value' => $totalMins]; }
-            if ($cfNotes) { $customFields[] = ['id' => (string) $cfNotes, 'value' => $notes]; }
+            // For Date/Time fields during creation, use text format (will be updated properly after creation)
+            if ($cfTimeIn) { $customFields[] = ['id' => (string) $cfTimeIn, 'value' => (string) $timeInText]; }
+            if ($cfTimeOut) { $customFields[] = ['id' => (string) $cfTimeOut, 'value' => (string) $timeOutText]; }
+            if ($cfTotalMins) { $customFields[] = ['id' => (string) $cfTotalMins, 'value' => (string) $totalMins]; }
+            if ($cfNotes) { $customFields[] = ['id' => (string) $cfNotes, 'value' => (string) $notes]; }
 
             $createPayload = [
                 'name' => $taskName,
@@ -736,14 +736,14 @@ class TimeEntryController extends Controller
         $timeOutText = $endManila->format('Y-m-d H:i:s') . ' ' . $manilaTz;
 
         $customFields = [];
-        if ($cfTaskId) { $customFields[] = ['id' => (string) $cfTaskId, 'value' => $clickupTaskId]; }
+        // When creating tasks, ClickUp requires all custom field values to be strings
+        if ($cfTaskId) { $customFields[] = ['id' => (string) $cfTaskId, 'value' => (string) $clickupTaskId]; }
         if ($cfUser) { $customFields[] = ['id' => (string) $cfUser, 'value' => (string) $userName]; }
-        // Note: Date/Time fields in ClickUp require Unix timestamp in milliseconds
-        // If these are text fields, they'll be updated via updateTaskCustomField with text format
-        if ($cfTimeIn) { $customFields[] = ['id' => (string) $cfTimeIn, 'value' => $timeInMs]; }
-        if ($cfTimeOut) { $customFields[] = ['id' => (string) $cfTimeOut, 'value' => $timeOutMs]; }
-        if ($cfTotalMins) { $customFields[] = ['id' => (string) $cfTotalMins, 'value' => $totalMins]; }
-        if ($cfNotes) { $customFields[] = ['id' => (string) $cfNotes, 'value' => $notes]; }
+        // For Date/Time fields during creation, use text format (will be updated properly after creation)
+        if ($cfTimeIn) { $customFields[] = ['id' => (string) $cfTimeIn, 'value' => (string) $timeInText]; }
+        if ($cfTimeOut) { $customFields[] = ['id' => (string) $cfTimeOut, 'value' => (string) $timeOutText]; }
+        if ($cfTotalMins) { $customFields[] = ['id' => (string) $cfTotalMins, 'value' => (string) $totalMins]; }
+        if ($cfNotes) { $customFields[] = ['id' => (string) $cfNotes, 'value' => (string) $notes]; }
 
         // Use event name as the task name; append date for readability
         $taskName = $eventName;
