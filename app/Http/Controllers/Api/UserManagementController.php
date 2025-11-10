@@ -19,11 +19,17 @@ class UserManagementController extends Controller
      */
     public function index()
     {
-        // Hide developer role from admin views - developers are invisible to admins
-        $users = User::with('team')
-            ->where('role', '!=', 'developer')
-            ->latest()
-            ->paginate(15);
+        // Show all users, but display developers as "employee" to admins
+        $users = User::with('team')->latest()->paginate(15);
+        
+        // Map developer role to employee for admin display
+        $users->getCollection()->transform(function ($user) {
+            if ($user->role === 'developer') {
+                $user->role = 'employee';
+            }
+            return $user;
+        });
+        
         return response()->json($users);
     }
 
@@ -62,10 +68,14 @@ class UserManagementController extends Controller
      */
     public function show(string $id)
     {
-        // Hide developer role from admin views - developers are invisible to admins
-        $user = User::with(['timeEntries', 'team'])
-            ->where('role', '!=', 'developer')
-            ->findOrFail($id);
+        // Show user, but display developer role as "employee" to admins
+        $user = User::with(['timeEntries', 'team'])->findOrFail($id);
+        
+        // Map developer role to employee for admin display
+        if ($user->role === 'developer') {
+            $user->role = 'employee';
+        }
+        
         return response()->json($user);
     }
 
@@ -97,9 +107,13 @@ class UserManagementController extends Controller
             $user->password = Hash::make($validated['password']);
         }
         if ($request->has('role')) {
-            // Prevent admin from changing role to developer - developers are hidden
+            // Prevent admin from changing role to developer
             if ($validated['role'] === 'developer') {
                 return response()->json(['error' => 'Invalid role'], 400);
+            }
+            // Prevent admin from changing developer users' roles
+            if ($user->role === 'developer') {
+                return response()->json(['error' => 'Cannot modify developer user role'], 400);
             }
             $user->role = $validated['role'];
         }
@@ -118,6 +132,11 @@ class UserManagementController extends Controller
 
         $user->save();
 
+        // Map developer role to employee for admin display
+        if ($user->role === 'developer') {
+            $user->role = 'employee';
+        }
+
         return response()->json($user);
     }
 
@@ -127,6 +146,12 @@ class UserManagementController extends Controller
     public function destroy(string $id)
     {
         $user = User::findOrFail($id);
+        
+        // Prevent admin from deleting developer users
+        if ($user->role === 'developer') {
+            return response()->json(['error' => 'Cannot delete developer user'], 400);
+        }
+        
         $user->delete();
 
         return response()->json(['message' => 'User deleted successfully'], 200);
