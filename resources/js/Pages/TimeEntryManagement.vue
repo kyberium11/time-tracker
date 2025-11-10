@@ -26,7 +26,7 @@ interface TimeEntry {
     };
     task?: {
         id: number;
-        name: string;
+        title: string;
         clickup_task_id: string | null;
     };
 }
@@ -382,7 +382,7 @@ onMounted(() => {
                                             {{ formatDate(entry.date) }}
                                         </td>
                                         <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-900">
-                                            {{ entry.task?.name || 'N/A' }}
+                                            {{ entry.task?.title || 'N/A' }}
                                         </td>
                                         <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-900">
                                             {{ formatTime(entry.clock_in) }}
