@@ -505,14 +505,18 @@ class TimeEntryController extends Controller
             $startManila = $start->clone()->setTimezone($manilaTz);
             $endManila = $end->clone()->setTimezone($manilaTz);
             
-            // Format notes as +00h00m00s
-            $notes = $this->formatDurationSeconds($durationSeconds);
+            // Format notes as "Time Tracked: +0h0m0s by User Name (Nov 10,2025 10:37:00 - Nov 10, 2025 10:37:00)"
+            $durationFormatted = $this->formatDurationSeconds($durationSeconds);
+            $timeInFormatted = $startManila->format('M d,Y H:i:s');
+            $timeOutFormatted = $endManila->format('M d, Y H:i:s');
+            $notes = "Time Tracked: {$durationFormatted} by {$user->name} ({$timeInFormatted} - {$timeOutFormatted})";
             
             // For Date/Time fields, use Unix timestamp in milliseconds; for text fields, use formatted string in Manila timezone
+            // Format: "Nov 10,2025 10:37:00" (no space after comma)
             $timeInMs = $start->getTimestampMs();
             $timeOutMs = $end->getTimestampMs();
-            $timeInText = $startManila->format('Y-m-d H:i:s') . ' ' . $manilaTz;
-            $timeOutText = $endManila->format('Y-m-d H:i:s') . ' ' . $manilaTz;
+            $timeInText = $startManila->format('M d,Y H:i:s');
+            $timeOutText = $endManila->format('M d,Y H:i:s');
 
             $customFields = [];
             // When creating tasks, ClickUp requires all custom field values to be strings
@@ -726,14 +730,18 @@ class TimeEntryController extends Controller
         $startManila = $start->clone()->setTimezone($manilaTz);
         $endManila = $end->clone()->setTimezone($manilaTz);
         
-        // Format notes as +00h00m00s
-        $notes = $this->formatDurationSeconds($durationSeconds);
+        // Format notes as "Time Tracked: +0h0m0s by User Name (Nov 10,2025 10:37:00 - Nov 10, 2025 10:37:00)"
+        $durationFormatted = $this->formatDurationSeconds($durationSeconds);
+        $timeInFormatted = $startManila->format('M d,Y H:i:s');
+        $timeOutFormatted = $endManila->format('M d, Y H:i:s');
+        $notes = "Time Tracked: {$durationFormatted} by {$userName} ({$timeInFormatted} - {$timeOutFormatted})";
         
         // For Date/Time fields, use Unix timestamp in milliseconds; for text fields, use formatted string in Manila timezone
+        // Format: "Nov 10,2025 10:37:00" (no space after comma)
         $timeInMs = $start->getTimestampMs();
         $timeOutMs = $end->getTimestampMs();
-        $timeInText = $startManila->format('Y-m-d H:i:s') . ' ' . $manilaTz;
-        $timeOutText = $endManila->format('Y-m-d H:i:s') . ' ' . $manilaTz;
+        $timeInText = $startManila->format('M d,Y H:i:s');
+        $timeOutText = $endManila->format('M d,Y H:i:s');
 
         $customFields = [];
         // When creating tasks, ClickUp requires all custom field values to be strings
@@ -839,7 +847,7 @@ class TimeEntryController extends Controller
     }
 
     /**
-     * Format a duration in seconds as +00h00m00s (e.g., +2h30m15s).
+     * Format a duration in seconds as +0h0m0s (e.g., +2h30m15s, no zero-padding).
      */
     private function formatDurationSeconds(int $seconds): string
     {
@@ -847,6 +855,6 @@ class TimeEntryController extends Controller
         $minutes = intdiv($seconds % 3600, 60);
         $secs = $seconds % 60;
 
-        return sprintf('+%02dh%02dm%02ds', $hours, $minutes, $secs);
+        return sprintf('+%dh%dm%ds', $hours, $minutes, $secs);
     }
 }
