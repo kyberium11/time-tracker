@@ -63,7 +63,7 @@ class TaskController extends Controller
                 ),
                 'clickup_parent_id' => (string) (data_get($remote, 'parent') ?: $task->clickup_parent_id),
                 'due_date' => ($ms = data_get($remote, 'due_date')) ? Carbon::createFromTimestampMs((int) $ms) : $task->due_date,
-                'estimated_time' => ($est = data_get($remote, 'time_estimate')) ? (int)$est : $task->estimated_time,
+                'estimated_time' => $clickUp->resolveTaskEstimate($remote, false) ?? $task->estimated_time,
             ]);
         }
         return response()->json(['task' => $task, 'clickup' => $remote]);
@@ -133,7 +133,7 @@ class TaskController extends Controller
                     ),
                     'clickup_parent_id' => (string) (data_get($t, 'parent') ?: null),
                     'due_date' => ($ms = data_get($t, 'due_date')) ? Carbon::createFromTimestampMs((int)$ms) : null,
-                    'estimated_time' => ($est = data_get($t, 'time_estimate')) ? (int)$est : null,
+                    'estimated_time' => $clickUp->resolveTaskEstimate($t),
                 ]
             );
             $upserted++;

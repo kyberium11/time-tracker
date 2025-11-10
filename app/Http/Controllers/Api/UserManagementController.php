@@ -199,7 +199,7 @@ class UserManagementController extends Controller
                     ),
                     'clickup_parent_id' => (string) (data_get($t, 'parent') ?: null),
                     'due_date' => ($ms = data_get($t, 'due_date')) ? Carbon::createFromTimestampMs((int)$ms) : null,
-                    'estimated_time' => ($est = data_get($t, 'time_estimate')) ? (int)$est : null,
+                    'estimated_time' => $clickUp->resolveTaskEstimate($t),
                 ]
             );
             $upserted++;

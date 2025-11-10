@@ -504,6 +504,47 @@ class ClickUpService
         }
     }
 
+    private function normalizeEstimate(mixed $value): ?int
+    {
+        if (is_numeric($value)) {
+            $intValue = (int) $value;
+            if ($intValue > 0) {
+                return $intValue;
+            }
+        }
+
+        return null;
+    }
+
+    public function resolveTaskEstimate(array $task, bool $allowFetch = true): ?int
+    {
+        $estimate = $this->normalizeEstimate(data_get($task, 'time_estimate'));
+        if ($estimate !== null) {
+            return $estimate;
+        }
+
+        $nestedEstimate = $this->normalizeEstimate(
+            data_get($task, 'time_estimates.total_estimate')
+                ?? data_get($task, 'time_estimates.total_estimated')
+                ?? data_get($task, 'time_estimates.total')
+        );
+        if ($nestedEstimate !== null) {
+            return $nestedEstimate;
+        }
+
+        if ($allowFetch) {
+            $taskId = data_get($task, 'id');
+            if ($taskId) {
+                $detail = $this->getTask((string) $taskId);
+                if (!isset($detail['__error'])) {
+                    return $this->resolveTaskEstimate($detail, false);
+                }
+            }
+        }
+
+        return null;
+    }
+
     /**
      * Update a task in ClickUp.
      */
