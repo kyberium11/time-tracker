@@ -552,7 +552,13 @@ class TimeEntryController extends Controller
                 // Retry with minimal payload (name/description only); some workspaces reject custom_fields at creation
                 $retryPayload = [ 'name' => $taskName, 'description' => implode("\n", $descParts) ];
                 $retry = $clickUp->createListTask((string) $reportListId, $retryPayload);
-                $reportTaskId = is_array($retry) ? ($retry['id'] ?? null) : null;
+                $reportTaskId = null;
+                if (is_array($retry) && !isset($retry['error'])) {
+                    $reportTaskId = $retry['id'] ?? null;
+                    if (!$reportTaskId && isset($retry['task'])) {
+                        $reportTaskId = $retry['task']['id'] ?? null;
+                    }
+                }
                 if ($reportTaskId) {
                     $this->logActivity('clickup_report_row_retry_created', 'Created report row on retry without custom_fields', [
                         'listId' => (string) $reportListId,
@@ -573,6 +579,9 @@ class TimeEntryController extends Controller
 
             // If custom field IDs are provided, set structured values (fallback if not set at creation)
             if ($reportTaskId) {
+                // Add a small delay to ensure task is fully created before updating custom fields
+                usleep(500000); // 0.5 second delay
+                
                 if ($cfTaskId) {
                     $res = $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTaskId, $clickupTaskId);
                     if (is_array($res) && ($res['error'] ?? false)) {
@@ -817,6 +826,9 @@ class TimeEntryController extends Controller
         }
 
         if ($reportTaskId) {
+            // Add a small delay to ensure task is fully created before updating custom fields
+            usleep(500000); // 0.5 second delay
+            
             if ($cfTaskId) {
                 $res = $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTaskId, $clickupTaskId);
                 if (is_array($res) && ($res['error'] ?? false)) {
