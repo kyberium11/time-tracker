@@ -218,6 +218,13 @@ const formatTime = (dateTime: string | null): string => {
     });
 };
 
+const formatTotalHours = (hours: number | string | null | undefined): string => {
+    if (hours === null || hours === undefined) return '0.00h';
+    const numHours = typeof hours === 'string' ? parseFloat(hours) : hours;
+    if (isNaN(numHours)) return '0.00h';
+    return `${numHours.toFixed(2)}h`;
+};
+
 const totalPages = computed(() => Math.ceil(total.value / perPage.value));
 
 const applyFilters = () => {
@@ -365,7 +372,7 @@ onMounted(() => {
                                             {{ formatTime(entry.clock_out) }}
                                         </td>
                                         <td class="whitespace-nowrap px-6 py-4 text-sm font-medium text-gray-900">
-                                            {{ entry.total_hours.toFixed(2) }}h
+                                            {{ formatTotalHours(entry.total_hours) }}
                                         </td>
                                         <td class="whitespace-nowrap px-6 py-4 text-sm font-medium">
                                             <button
@@ -517,7 +524,7 @@ onMounted(() => {
                         <strong>ID:</strong> {{ deletingEntry.id }}<br>
                         <strong>User:</strong> {{ deletingEntry.user?.name || 'N/A' }}<br>
                         <strong>Date:</strong> {{ formatDate(deletingEntry.date) }}<br>
-                        <strong>Total Hours:</strong> {{ deletingEntry.total_hours.toFixed(2) }}h
+                        <strong>Total Hours:</strong> {{ formatTotalHours(deletingEntry.total_hours) }}
                     </p>
                 </div>
 
