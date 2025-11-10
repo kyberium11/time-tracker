@@ -439,32 +439,62 @@ class ClickUpService
 
         $url = 'https://api.clickup.com/api/v2/team/' . $teamId . '/task';
 
+        // Paginate through all pages to fetch more than 100 tasks and include subtasks
+        $baseQuery = $query;
+        $baseQuery['limit'] = $baseQuery['limit'] ?? 100;
+
+        $all = [];
+        $visited = [];
+        $page = (int) ($baseQuery['page'] ?? 0);
+        $maxPages = 50;
+
         try {
-            $response = Http::withHeaders($headers)
-                ->timeout(10)
-                ->get($url, $query);
+            while ($page < $maxPages) {
+                $pageQuery = $baseQuery;
+                $pageQuery['page'] = $page;
 
-            if ($response->failed()) {
-                Log::warning('ClickUp list tasks by assignee failed', [
-                    'teamId' => $teamId,
-                    'status' => $response->status(),
-                    'body' => $response->body(),
-                    'query' => $query,
-                ]);
-                return [];
+                $response = Http::withHeaders($headers)
+                    ->timeout(12)
+                    ->get($url, $pageQuery);
+
+                if ($response->failed()) {
+                    Log::warning('ClickUp list tasks by assignee failed', [
+                        'teamId' => $teamId,
+                        'status' => $response->status(),
+                        'body' => $response->body(),
+                        'query' => $pageQuery,
+                        'page' => $page,
+                    ]);
+                    break;
+                }
+
+                $data = $response->json();
+                $tasks = is_array($data) ? ($data['tasks'] ?? []) : [];
+
+                $flat = $this->flattenTasksWithSubtasks($tasks, $visited);
+                foreach ($flat as $t) {
+                    $id = (string) (data_get($t, 'id') ?? '');
+                    if ($id !== '' && !isset($visited[$id])) {
+                        $visited[$id] = true;
+                        $all[] = $t;
+                    }
+                }
+
+                if (count($tasks) < (int) $baseQuery['limit']) {
+                    break;
+                }
+
+                $page++;
             }
-
-            $data = $response->json();
-            $tasks = is_array($data) ? ($data['tasks'] ?? []) : [];
-
-            return $this->flattenTasksWithSubtasks($tasks);
         } catch (\Throwable $e) {
             Log::warning('ClickUp list tasks by assignee exception', [
                 'teamId' => $teamId,
                 'message' => $e->getMessage(),
+                'page' => $page,
             ]);
-            return [];
         }
+
+        return $all;
     }
 
     /**
@@ -481,35 +511,63 @@ class ClickUpService
         $defaultQuery = [
             'include_closed' => 'true',
             'subtasks' => 'true',
+            'limit' => 100,
+            'page' => 0,
         ];
-        $query = array_merge($defaultQuery, $query);
+        $baseQuery = array_merge($defaultQuery, $query);
+
+        $all = [];
+        $visited = [];
+        $page = (int) ($baseQuery['page'] ?? 0);
+        $maxPages = 50;
 
         try {
-            $response = Http::withHeaders($headers)
-                ->timeout(10)
-                ->get($url, $query);
+            while ($page < $maxPages) {
+                $pageQuery = $baseQuery;
+                $pageQuery['page'] = $page;
 
-            if ($response->failed()) {
-                Log::warning('ClickUp list tasks failed', [
-                    'listId' => $listId,
-                    'status' => $response->status(),
-                    'body' => $response->body(),
-                    'query' => $query,
-                ]);
-                return [];
+                $response = Http::withHeaders($headers)
+                    ->timeout(12)
+                    ->get($url, $pageQuery);
+
+                if ($response->failed()) {
+                    Log::warning('ClickUp list tasks failed', [
+                        'listId' => $listId,
+                        'status' => $response->status(),
+                        'body' => $response->body(),
+                        'query' => $pageQuery,
+                        'page' => $page,
+                    ]);
+                    break;
+                }
+
+                $data = $response->json();
+                $tasks = is_array($data) ? ($data['tasks'] ?? []) : [];
+
+                $flat = $this->flattenTasksWithSubtasks($tasks, $visited);
+                foreach ($flat as $t) {
+                    $id = (string) (data_get($t, 'id') ?? '');
+                    if ($id !== '' && !isset($visited[$id])) {
+                        $visited[$id] = true;
+                        $all[] = $t;
+                    }
+                }
+
+                if (count($tasks) < (int) ($baseQuery['limit'] ?? 100)) {
+                    break;
+                }
+
+                $page++;
             }
-
-            $data = $response->json();
-            $tasks = is_array($data) ? ($data['tasks'] ?? []) : [];
-
-            return $this->flattenTasksWithSubtasks($tasks);
         } catch (\Throwable $e) {
             Log::warning('ClickUp list tasks exception', [
                 'listId' => $listId,
                 'message' => $e->getMessage(),
+                'page' => $page,
             ]);
-            return [];
         }
+
+        return $all;
     }
 
     private function normalizeEstimate(mixed $value): ?int
