@@ -74,8 +74,8 @@ class AnalyticsController extends Controller
                     ->whereNotNull('clock_out')
                     ->whereIn('user_id', $userIds)
                     ->get();
-            } elseif ($user->role === 'admin') {
-                // Admins see all data
+            } elseif ($user->role === 'admin' || $user->role === 'developer') {
+                // Admins and developers see all data
                 $users = User::where('role', 'employee')->get();
                 $entries = TimeEntry::whereBetween('date', [$startDate, $endDate])
                     ->whereNotNull('clock_out')
@@ -547,8 +547,8 @@ class AnalyticsController extends Controller
             $query->whereIn('user_id', $userIds);
         }
 
-        // Filter by team if provided (admin only)
-        if ($request->has('team_id') && $request->team_id && $user->role === 'admin') {
+        // Filter by team if provided (admin and developer only)
+        if ($request->has('team_id') && $request->team_id && ($user->role === 'admin' || $user->role === 'developer')) {
             $teamUserIds = User::where('team_id', $request->team_id)
                 ->pluck('id')
                 ->toArray();
