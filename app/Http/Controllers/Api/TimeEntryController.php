@@ -464,9 +464,9 @@ class TimeEntryController extends Controller
             // Add a structured comment with second-level precision
             $start = Carbon::parse($open->clock_in);
             $end = Carbon::parse($open->clock_out);
-            $displayTz = env('CLICKUP_DISPLAY_TZ', config('app.timezone'));
+            $displayTz = 'Asia/Manila';
             $durationSeconds = max(1, $start->diffInSeconds($end));
-            $comment = 'Time Tracker: +' . $this->formatDurationSeconds($durationSeconds) . ' by ' . $user->name . ' (' . $start->clone()->setTimezone($displayTz)->format('Y-m-d H:i:s') . '–' . $end->clone()->setTimezone($displayTz)->format('Y-m-d H:i:s') . ' ' . $displayTz . ')';
+            $comment = 'Time Tracker: ' . $this->formatDurationSeconds($durationSeconds) . ' by ' . $user->name . ' (' . $start->clone()->setTimezone($displayTz)->format('Y-m-d H:i:s') . '–' . $end->clone()->setTimezone($displayTz)->format('Y-m-d H:i:s') . ' ' . $displayTz . ')';
             $clickUp->addTaskComment($clickupTaskId, $comment);
         }
 
@@ -1034,7 +1034,7 @@ class TimeEntryController extends Controller
             $user = $entry->user;
             $start = Carbon::parse($entry->clock_in);
             $end = Carbon::parse($entry->clock_out);
-            $displayTz = env('CLICKUP_DISPLAY_TZ', config('app.timezone'));
+            $displayTz = 'Asia/Manila';
             $durationSeconds = max(1, $start->diffInSeconds($end));
             $actionText = $action === 'updated' ? 'Updated' : 'Deleted';
             $comment = "Time Tracker: {$actionText} " . $this->formatDurationSeconds($durationSeconds) . ' by ' . $user->name . ' (' . $start->clone()->setTimezone($displayTz)->format('Y-m-d H:i:s') . '–' . $end->clone()->setTimezone($displayTz)->format('Y-m-d H:i:s') . ' ' . $displayTz . ')';
