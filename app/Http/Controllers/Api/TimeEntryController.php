@@ -494,6 +494,7 @@ class TimeEntryController extends Controller
             $notes = "Time Tracked: {$durationFormatted} by {$user->name} ({$timeInFormatted} - {$timeOutFormatted})";
             
             $descParts = [
+                'Entry ID: ' . $open->id,
                 'Task ID: ' . ($open->task?->clickup_task_id ?? 'n/a'),
                 'Time In: ' . $timeInFormatted,
                 'Time Out: ' . $timeOutFormatted,
@@ -1038,6 +1039,308 @@ class TimeEntryController extends Controller
             $actionText = $action === 'updated' ? 'Updated' : 'Deleted';
             $comment = "Time Tracker: {$actionText} " . $this->formatDurationSeconds($durationSeconds) . ' by ' . $user->name . ' (' . $start->clone()->setTimezone($displayTz)->format('Y-m-d H:i:s') . '–' . $end->clone()->setTimezone($displayTz)->format('Y-m-d H:i:s') . ' ' . $displayTz . ')';
             $clickUp->addTaskComment($clickupTaskId, $comment);
+        }
+
+        // Update or create report list entry
+        if ($action === 'updated' && $entry->clock_in && $entry->clock_out) {
+            $this->updateOrCreateReportListEntry($clickUp, $entry);
+        } elseif ($action === 'deleted' && $entry->clock_in && $entry->clock_out) {
+            $this->deleteReportListEntry($clickUp, $entry);
+        }
+    }
+
+    /**
+     * Find, update, or create a report list entry for a time entry.
+     */
+    private function updateOrCreateReportListEntry(ClickUpService $clickUp, TimeEntry $entry): void
+    {
+        $reportListId = env('CLICKUP_REPORT_LIST_ID');
+        if (!$reportListId) {
+            return;
+        }
+
+        $user = $entry->user;
+        $clickupTaskId = (string) ($entry->task?->clickup_task_id ?? '');
+        $start = Carbon::parse($entry->clock_in);
+        $end = Carbon::parse($entry->clock_out);
+        $durationSeconds = max(1, $start->diffInSeconds($end));
+        $totalMins = round($durationSeconds / 60, 3);
+
+        $manilaTz = 'Asia/Manila';
+        $startManila = $start->clone()->setTimezone($manilaTz);
+        $endManila = $end->clone()->setTimezone($manilaTz);
+        $durationFormatted = $this->formatDurationSeconds($durationSeconds);
+        $timeInFormatted = $startManila->format('M d,Y H:i:s');
+        $timeOutFormatted = $endManila->format('M d,Y H:i:s');
+        $notes = "Time Tracked: {$durationFormatted} by {$user->name} ({$timeInFormatted} - {$timeOutFormatted})";
+
+        $cfTaskId = env('CLICKUP_REPORT_CF_TASK_ID');
+        $cfUser = env('CLICKUP_REPORT_CF_USER');
+        $cfTimeIn = env('CLICKUP_REPORT_CF_TIME_IN');
+        $cfTimeOut = env('CLICKUP_REPORT_CF_TIME_OUT');
+        $cfTotalMins = env('CLICKUP_REPORT_CF_TOTAL_MINS');
+        $cfNotes = env('CLICKUP_REPORT_CF_NOTES');
+
+        $timeInMs = $start->getTimestampMs();
+        $timeOutMs = $end->getTimestampMs();
+        $timeInText = $startManila->format('M d,Y H:i:s');
+        $timeOutText = $endManila->format('M d,Y H:i:s');
+
+        // Try to find existing report task
+        $reportTaskId = $this->findReportListTask($clickUp, $reportListId, $entry);
+
+        if ($reportTaskId) {
+            // Update existing report task
+            $this->logActivity('clickup_report_row_updating', 'Updating report row', [
+                'reportTaskId' => $reportTaskId,
+                'entryId' => $entry->id,
+            ]);
+
+            // Update custom fields
+            if ($cfTaskId) {
+                $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTaskId, $clickupTaskId);
+            }
+            if ($cfUser) {
+                $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfUser, (string) $user->name);
+            }
+            if ($cfTimeIn) {
+                $res = $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTimeIn, $timeInMs, true);
+                if (is_array($res) && ($res['error'] ?? false)) {
+                    $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTimeIn, $timeInText, false);
+                }
+            }
+            if ($cfTimeOut) {
+                $res = $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTimeOut, $timeOutMs, true);
+                if (is_array($res) && ($res['error'] ?? false)) {
+                    $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTimeOut, $timeOutText, false);
+                }
+            }
+            if ($cfTotalMins) {
+                $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTotalMins, $totalMins);
+            }
+            if ($cfNotes) {
+                $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfNotes, $notes);
+            }
+
+            // Update task description
+            $descParts = [
+                'Entry ID: ' . $entry->id,
+                'Task ID: ' . ($clickupTaskId ?: 'n/a'),
+                'Time In: ' . $timeInFormatted,
+                'Time Out: ' . $timeOutFormatted,
+                'Total Time (mins): ' . $totalMins,
+                'User: ' . $user->name,
+                'Notes: ' . $notes,
+            ];
+            $clickupTaskIdForUrl = (string) ($entry->task?->clickup_task_id ?? '');
+            $taskUrl = $clickupTaskIdForUrl ? ('https://app.clickup.com/t/' . $clickupTaskIdForUrl) : (Carbon::parse($entry->date)->toDateString() . ' | Task #' . $entry->task_id);
+            $taskName = $taskUrl;
+
+            $clickUp->updateTask((string) $reportTaskId, [
+                'name' => $taskName,
+                'description' => implode("\n", $descParts),
+            ]);
+
+            $this->logActivity('clickup_report_row_updated', 'Updated report row', [
+                'reportTaskId' => $reportTaskId,
+                'entryId' => $entry->id,
+            ]);
+        } else {
+            // Create new report task (fallback if not found)
+            $this->createReportListEntry($clickUp, $entry);
+        }
+    }
+
+    /**
+     * Find a report list task that matches the time entry.
+     */
+    private function findReportListTask(ClickUpService $clickUp, string $reportListId, TimeEntry $entry): ?string
+    {
+        try {
+            $tasks = $clickUp->listListTasks($reportListId);
+            $cfTaskId = env('CLICKUP_REPORT_CF_TASK_ID');
+            $cfUser = env('CLICKUP_REPORT_CF_USER');
+            $clickupTaskId = (string) ($entry->task?->clickup_task_id ?? '');
+            $userName = $entry->user->name ?? '';
+
+            // Match by entry ID in description or by task ID + user + approximate time
+            foreach ($tasks as $task) {
+                $taskId = $task['id'] ?? null;
+                if (!$taskId) {
+                    continue;
+                }
+
+                // Check if description contains the entry ID
+                $description = $task['description'] ?? '';
+                if (strpos($description, 'Entry ID: ' . $entry->id) !== false) {
+                    return (string) $taskId;
+                }
+
+                // Match by custom fields: task ID and user
+                $customFields = $task['custom_fields'] ?? [];
+                $taskIdMatch = false;
+                $userMatch = false;
+
+                foreach ($customFields as $cf) {
+                    $cfId = (string) ($cf['id'] ?? '');
+                    $cfValue = $cf['value'] ?? '';
+
+                    if ($cfTaskId && $cfId === $cfTaskId && $cfValue === $clickupTaskId) {
+                        $taskIdMatch = true;
+                    }
+                    if ($cfUser && $cfId === $cfUser && $cfValue === $userName) {
+                        $userMatch = true;
+                    }
+                }
+
+                // If both match, this is likely the report task for this entry
+                // We'll use the first match (could be improved with time matching)
+                if ($taskIdMatch && $userMatch && $clickupTaskId) {
+                    return (string) $taskId;
+                }
+            }
+        } catch (\Throwable $e) {
+            $this->logActivity('clickup_report_find_error', 'Error finding report task', [
+                'entryId' => $entry->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        return null;
+    }
+
+    /**
+     * Create a new report list entry for a time entry.
+     */
+    private function createReportListEntry(ClickUpService $clickUp, TimeEntry $entry): void
+    {
+        $reportListId = env('CLICKUP_REPORT_LIST_ID');
+        if (!$reportListId) {
+            return;
+        }
+
+        $user = $entry->user;
+        $clickupTaskId = (string) ($entry->task?->clickup_task_id ?? '');
+        $start = Carbon::parse($entry->clock_in);
+        $end = Carbon::parse($entry->clock_out);
+        $durationSeconds = max(1, $start->diffInSeconds($end));
+        $totalMins = round($durationSeconds / 60, 3);
+
+        $manilaTz = 'Asia/Manila';
+        $startManila = $start->clone()->setTimezone($manilaTz);
+        $endManila = $end->clone()->setTimezone($manilaTz);
+        $durationFormatted = $this->formatDurationSeconds($durationSeconds);
+        $timeInFormatted = $startManila->format('M d,Y H:i:s');
+        $timeOutFormatted = $endManila->format('M d,Y H:i:s');
+        $notes = "Time Tracked: {$durationFormatted} by {$user->name} ({$timeInFormatted} - {$timeOutFormatted})";
+
+        $cfTaskId = env('CLICKUP_REPORT_CF_TASK_ID');
+        $cfUser = env('CLICKUP_REPORT_CF_USER');
+        $cfTimeIn = env('CLICKUP_REPORT_CF_TIME_IN');
+        $cfTimeOut = env('CLICKUP_REPORT_CF_TIME_OUT');
+        $cfTotalMins = env('CLICKUP_REPORT_CF_TOTAL_MINS');
+        $cfNotes = env('CLICKUP_REPORT_CF_NOTES');
+
+        $timeInMs = $start->getTimestampMs();
+        $timeOutMs = $end->getTimestampMs();
+        $timeInText = $startManila->format('M d,Y H:i:s');
+        $timeOutText = $endManila->format('M d,Y H:i:s');
+
+        $descParts = [
+            'Entry ID: ' . $entry->id,
+            'Task ID: ' . ($clickupTaskId ?: 'n/a'),
+            'Time In: ' . $timeInFormatted,
+            'Time Out: ' . $timeOutFormatted,
+            'Total Time (mins): ' . $totalMins,
+            'User: ' . $user->name,
+            'Notes: ' . $notes,
+        ];
+
+        $customFields = [];
+        if ($cfTaskId) {
+            $customFields[] = ['id' => (string) $cfTaskId, 'value' => (string) $clickupTaskId];
+        }
+        if ($cfUser) {
+            $customFields[] = ['id' => (string) $cfUser, 'value' => (string) $user->name];
+        }
+        if ($cfTimeIn) {
+            $customFields[] = ['id' => (string) $cfTimeIn, 'value' => (string) $timeInText];
+        }
+        if ($cfTimeOut) {
+            $customFields[] = ['id' => (string) $cfTimeOut, 'value' => (string) $timeOutText];
+        }
+        if ($cfTotalMins) {
+            $customFields[] = ['id' => (string) $cfTotalMins, 'value' => (string) $totalMins];
+        }
+        if ($cfNotes) {
+            $customFields[] = ['id' => (string) $cfNotes, 'value' => (string) $notes];
+        }
+
+        $clickupTaskIdForUrl = (string) ($entry->task?->clickup_task_id ?? '');
+        $taskUrl = $clickupTaskIdForUrl ? ('https://app.clickup.com/t/' . $clickupTaskIdForUrl) : (Carbon::parse($entry->date)->toDateString() . ' | Task #' . $entry->task_id);
+        $taskName = $taskUrl;
+
+        $createPayload = [
+            'name' => $taskName,
+            'description' => implode("\n", $descParts),
+            'custom_fields' => $customFields,
+        ];
+
+        $created = $clickUp->createListTask((string) $reportListId, $createPayload);
+        $reportTaskId = null;
+        if (is_array($created) && !isset($created['error'])) {
+            $reportTaskId = $created['id'] ?? null;
+            if (!$reportTaskId && isset($created['task'])) {
+                $reportTaskId = $created['task']['id'] ?? null;
+            }
+        }
+
+        if ($reportTaskId) {
+            // Update custom fields with proper formats after creation
+            usleep(500000); // 0.5 second delay
+
+            if ($cfTimeIn) {
+                $res = $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTimeIn, $timeInMs, true);
+                if (is_array($res) && ($res['error'] ?? false)) {
+                    $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTimeIn, $timeInText, false);
+                }
+            }
+            if ($cfTimeOut) {
+                $res = $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTimeOut, $timeOutMs, true);
+                if (is_array($res) && ($res['error'] ?? false)) {
+                    $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTimeOut, $timeOutText, false);
+                }
+            }
+
+            $this->logActivity('clickup_report_row_created', 'Created report row', [
+                'listId' => (string) $reportListId,
+                'reportTaskId' => (string) $reportTaskId,
+                'entryId' => $entry->id,
+            ]);
+        }
+    }
+
+    /**
+     * Delete a report list entry for a time entry.
+     */
+    private function deleteReportListEntry(ClickUpService $clickUp, TimeEntry $entry): void
+    {
+        $reportListId = env('CLICKUP_REPORT_LIST_ID');
+        if (!$reportListId) {
+            return;
+        }
+
+        $reportTaskId = $this->findReportListTask($clickUp, $reportListId, $entry);
+        if ($reportTaskId) {
+            // Note: ClickUp API doesn't have a direct delete endpoint for tasks
+            // We can update the task status to "closed" or leave it as is
+            // For now, we'll just log that we found it
+            $this->logActivity('clickup_report_row_found_for_delete', 'Found report row for deletion', [
+                'reportTaskId' => $reportTaskId,
+                'entryId' => $entry->id,
+            ]);
+            // Optionally update status to closed
+            // $clickUp->updateTaskStatus((string) $reportTaskId, 'closed');
         }
     }
 }

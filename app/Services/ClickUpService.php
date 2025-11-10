@@ -460,6 +460,95 @@ class ClickUpService
             return [];
         }
     }
+
+    /**
+     * List tasks in a ClickUp list.
+     */
+    public function listListTasks(string $listId, array $query = []): array
+    {
+        $headers = [
+            'Authorization' => (string) $this->apiToken,
+            'Accept' => 'application/json',
+        ];
+        $url = 'https://api.clickup.com/api/v2/list/' . $listId . '/task';
+        
+        $defaultQuery = [
+            'include_closed' => 'true',
+            'subtasks' => 'true',
+        ];
+        $query = array_merge($defaultQuery, $query);
+
+        try {
+            $response = Http::withHeaders($headers)
+                ->timeout(10)
+                ->get($url, $query);
+
+            if ($response->failed()) {
+                Log::warning('ClickUp list tasks failed', [
+                    'listId' => $listId,
+                    'status' => $response->status(),
+                    'body' => $response->body(),
+                    'query' => $query,
+                ]);
+                return [];
+            }
+
+            $data = $response->json();
+            return is_array($data) ? ($data['tasks'] ?? []) : [];
+        } catch (\Throwable $e) {
+            Log::warning('ClickUp list tasks exception', [
+                'listId' => $listId,
+                'message' => $e->getMessage(),
+            ]);
+            return [];
+        }
+    }
+
+    /**
+     * Update a task in ClickUp.
+     */
+    public function updateTask(string $taskId, array $data): array
+    {
+        $headers = [
+            'Authorization' => (string) $this->apiToken,
+            'Content-Type' => 'application/json',
+            'Accept' => 'application/json',
+        ];
+        $base = 'https://api.clickup.com/api/v2/task/' . $taskId;
+        $teamId = env('CLICKUP_TEAM_ID');
+        $useCustomIds = !ctype_digit($taskId);
+        $query = [];
+        if ($useCustomIds) {
+            $query['custom_task_ids'] = 'true';
+        }
+        if ($teamId) {
+            $query['team_id'] = $teamId;
+        }
+
+        try {
+            $response = Http::withHeaders($headers)
+                ->timeout(10)
+                ->withOptions(['query' => $query])
+                ->put($base, $data);
+
+            if ($response->failed()) {
+                Log::warning('ClickUp update task failed', [
+                    'taskId' => $taskId,
+                    'status' => $response->status(),
+                    'body' => $response->body(),
+                    'data' => $data,
+                ]);
+                return ['error' => true, 'status' => $response->status(), 'body' => (string) $response->body()];
+            }
+            return $response->json() ?? ['ok' => true];
+        } catch (\Throwable $e) {
+            Log::warning('ClickUp update task exception', [
+                'taskId' => $taskId,
+                'message' => $e->getMessage(),
+            ]);
+            return ['error' => true, 'status' => 0, 'body' => 'exception: ' . $e->getMessage()];
+        }
+    }
 }
 
 
