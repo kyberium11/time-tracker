@@ -170,6 +170,7 @@ class ClickUpWebhookController extends Controller
                     ),
                     'clickup_parent_id' => (string) (data_get($task, 'parent') ?: null),
                     'due_date' => ($ms = data_get($task, 'due_date')) ? Carbon::createFromTimestampMs((int)$ms) : null,
+                    'estimated_time' => ($est = data_get($task, 'time_estimate')) ? (int)$est : null,
                 ]
             );
 
