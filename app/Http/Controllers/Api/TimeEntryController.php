@@ -476,15 +476,21 @@ class TimeEntryController extends Controller
             $clickupTaskIdForUrl = (string) ($open->task?->clickup_task_id ?? '');
             $taskUrl = $clickupTaskIdForUrl ? ('https://app.clickup.com/t/' . $clickupTaskIdForUrl) : (Carbon::parse($open->date)->toDateString() . ' | Task #' . $open->task_id);
             $taskName = $taskUrl;
-            $displayTz = env('CLICKUP_DISPLAY_TZ', config('app.timezone'));
+            // Use Asia/Manila timezone for description to match custom fields
+            $manilaTz = 'Asia/Manila';
+            $startManila = Carbon::parse($open->clock_in)->setTimezone($manilaTz);
+            $endManila = Carbon::parse($open->clock_out)->setTimezone($manilaTz);
+            $durationFormatted = $this->formatDurationSeconds($durationSeconds);
+            $timeInFormatted = $startManila->format('M d,Y H:i:s');
+            $timeOutFormatted = $endManila->format('M d, Y H:i:s');
+            
             $descParts = [
+                'Task ID: ' . ($open->task?->clickup_task_id ?? 'n/a'),
+                'Time In: ' . $timeInFormatted,
+                'Time Out: ' . $timeOutFormatted,
+                'Total Time (mins): ' . $totalMins,
                 'User: ' . $user->name,
-                'Email: ' . $user->email,
-                'Local Task ID: ' . $open->task_id,
-                'ClickUp Task ID: ' . ($open->task?->clickup_task_id ?? 'n/a'),
-                'Start: ' . Carbon::parse($open->clock_in)->setTimezone($displayTz)->format('Y-m-d H:i:s') . ' ' . $displayTz,
-                'End: ' . Carbon::parse($open->clock_out)->setTimezone($displayTz)->format('Y-m-d H:i:s') . ' ' . $displayTz,
-                'Hours: ' . round(Carbon::parse($open->clock_in)->diffInSeconds(Carbon::parse($open->clock_out)) / 3600, 2),
+                'Notes: ' . $notes,
             ];
             // Prepare custom field values (also used for create-time custom_fields)
             $cfTaskId = env('CLICKUP_REPORT_CF_TASK_ID');
@@ -702,15 +708,21 @@ class TimeEntryController extends Controller
         $reportListId = env('CLICKUP_REPORT_LIST_ID');
         if (!$reportListId) { return; }
 
-        $displayTz = env('CLICKUP_DISPLAY_TZ', config('app.timezone'));
+        // Use Asia/Manila timezone for description to match custom fields
+        $manilaTz = 'Asia/Manila';
+        $startManila = $start->clone()->setTimezone($manilaTz);
+        $endManila = $end->clone()->setTimezone($manilaTz);
+        $durationFormatted = $this->formatDurationSeconds($durationSeconds);
+        $timeInFormatted = $startManila->format('M d,Y H:i:s');
+        $timeOutFormatted = $endManila->format('M d, Y H:i:s');
+        
         $descParts = [
+            'Task ID: ' . ($relatedTaskId ?: 'n/a'),
+            'Time In: ' . $timeInFormatted,
+            'Time Out: ' . $timeOutFormatted,
+            'Total Time (mins): ' . $totalMins,
             'User: ' . $userName,
-            'Email: ' . $userEmail,
-            'Local Task ID: ' . $localTaskId,
-            'ClickUp Task ID: ' . ($relatedTaskId ?: 'n/a'),
-            'Start: ' . $start->clone()->setTimezone($displayTz)->format('Y-m-d H:i:s') . ' ' . $displayTz,
-            'End: ' . $end->clone()->setTimezone($displayTz)->format('Y-m-d H:i:s') . ' ' . $displayTz,
-            'Hours: ' . round(max(1, $start->diffInSeconds($end)) / 3600, 2),
+            'Notes: ' . $notes,
         ];
 
         // Prepare custom field values
