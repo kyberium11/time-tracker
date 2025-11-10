@@ -119,7 +119,8 @@ class TimeEntryController extends Controller
         $today = Carbon::today();
 
         // Find the open work entry (clocked in but not clocked out)
-        $entry = TimeEntry::where('user_id', $user->id)
+        $entry = TimeEntry::with('task')
+            ->where('user_id', $user->id)
             ->where('date', $today)
             ->where('entry_type', 'work')
             ->whereNotNull('clock_in')
@@ -388,7 +389,8 @@ class TimeEntryController extends Controller
     public function stopTask(ClickUpService $clickUp)
     {
         $user = Auth::user();
-        $open = TimeEntry::where('user_id', $user->id)
+        $open = TimeEntry::with('task')
+            ->where('user_id', $user->id)
             ->whereDate('created_at', Carbon::today())
             ->whereNotNull('task_id')
             ->whereNull('clock_out')
@@ -723,18 +725,74 @@ class TimeEntryController extends Controller
         $created = $clickUp->createListTask((string) $reportListId, $createPayload);
         $reportTaskId = is_array($created) ? ($created['id'] ?? null) : null;
         if (!$reportTaskId) {
+            $this->logActivity('clickup_report_row_error', 'Failed creating report row', [
+                'listId' => (string) $reportListId,
+                'payload' => $createPayload,
+                'response' => $created,
+                'eventName' => $eventName,
+            ]);
+            // Retry with minimal payload (name/description only); some workspaces reject custom_fields at creation
             $retryPayload = [ 'name' => $taskName, 'description' => implode("\n", $descParts) ];
             $retry = $clickUp->createListTask((string) $reportListId, $retryPayload);
             $reportTaskId = is_array($retry) ? ($retry['id'] ?? null) : null;
+            if ($reportTaskId) {
+                $this->logActivity('clickup_report_row_retry_created', 'Created report row on retry without custom_fields', [
+                    'listId' => (string) $reportListId,
+                    'reportTaskId' => (string) $reportTaskId,
+                    'eventName' => $eventName,
+                ]);
+            } else {
+                $this->logActivity('clickup_report_row_retry_failed', 'Retry create failed', [
+                    'listId' => (string) $reportListId,
+                    'response' => $retry,
+                    'eventName' => $eventName,
+                ]);
+            }
+        } else {
+            $this->logActivity('clickup_report_row_created', 'Created report row', [
+                'listId' => (string) $reportListId,
+                'reportTaskId' => (string) $reportTaskId,
+                'eventName' => $eventName,
+            ]);
         }
 
         if ($reportTaskId) {
-            if ($cfTaskId) { $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTaskId, $clickupTaskId); }
-            if ($cfUser) { $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfUser, (string) $userName); }
-            if ($cfTimeIn) { $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTimeIn, $timeInText); }
-            if ($cfTimeOut) { $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTimeOut, $timeOutText); }
-            if ($cfTotalMins) { $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTotalMins, $totalMins); }
-            if ($cfNotes) { $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfNotes, $notes); }
+            if ($cfTaskId) {
+                $res = $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTaskId, $clickupTaskId);
+                if (is_array($res) && ($res['error'] ?? false)) {
+                    $this->logActivity('clickup_report_cf_error', 'Failed to set Task ID', ['reportTaskId' => $reportTaskId, 'field' => 'TASK_ID', 'response' => $res, 'eventName' => $eventName]);
+                }
+            }
+            if ($cfUser) {
+                $res = $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfUser, (string) $userName);
+                if (is_array($res) && ($res['error'] ?? false)) {
+                    $this->logActivity('clickup_report_cf_error', 'Failed to set User', ['reportTaskId' => $reportTaskId, 'field' => 'USER', 'response' => $res, 'eventName' => $eventName]);
+                }
+            }
+            if ($cfTimeIn) {
+                $res = $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTimeIn, $timeInText);
+                if (is_array($res) && ($res['error'] ?? false)) {
+                    $this->logActivity('clickup_report_cf_error', 'Failed to set Time In', ['reportTaskId' => $reportTaskId, 'field' => 'TIME_IN', 'response' => $res, 'eventName' => $eventName]);
+                }
+            }
+            if ($cfTimeOut) {
+                $res = $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTimeOut, $timeOutText);
+                if (is_array($res) && ($res['error'] ?? false)) {
+                    $this->logActivity('clickup_report_cf_error', 'Failed to set Time Out', ['reportTaskId' => $reportTaskId, 'field' => 'TIME_OUT', 'response' => $res, 'eventName' => $eventName]);
+                }
+            }
+            if ($cfTotalMins) {
+                $res = $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTotalMins, $totalMins);
+                if (is_array($res) && ($res['error'] ?? false)) {
+                    $this->logActivity('clickup_report_cf_error', 'Failed to set Total Time (mins)', ['reportTaskId' => $reportTaskId, 'field' => 'TOTAL_MINS', 'response' => $res, 'eventName' => $eventName]);
+                }
+            }
+            if ($cfNotes) {
+                $res = $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfNotes, $notes);
+                if (is_array($res) && ($res['error'] ?? false)) {
+                    $this->logActivity('clickup_report_cf_error', 'Failed to set Notes', ['reportTaskId' => $reportTaskId, 'field' => 'NOTES', 'response' => $res, 'eventName' => $eventName]);
+                }
+            }
         }
     }
 
