@@ -22,6 +22,11 @@ class RoleMiddleware
         $userRole = $request->user()->role;
         $allowedRoles = array_map('trim', explode(',', $roles));
 
+        // Developer role has admin+ access - allow developer to access admin routes
+        if ($userRole === 'developer' && in_array('admin', $allowedRoles)) {
+            return $next($request);
+        }
+
         // Log for debugging
         \Log::info('RoleMiddleware check', [
             'user_role' => $userRole,

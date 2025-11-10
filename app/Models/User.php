@@ -108,4 +108,12 @@ class User extends Authenticatable
     {
         return $this->role === 'employee';
     }
+
+    /**
+     * Check if user is developer.
+     */
+    public function isDeveloper(): bool
+    {
+        return $this->role === 'developer';
+    }
 }

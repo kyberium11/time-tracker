@@ -19,7 +19,11 @@ class UserManagementController extends Controller
      */
     public function index()
     {
-        $users = User::with('team')->latest()->paginate(15);
+        // Hide developer role from admin views - developers are invisible to admins
+        $users = User::with('team')
+            ->where('role', '!=', 'developer')
+            ->latest()
+            ->paginate(15);
         return response()->json($users);
     }
 
@@ -58,7 +62,10 @@ class UserManagementController extends Controller
      */
     public function show(string $id)
     {
-        $user = User::with(['timeEntries', 'team'])->findOrFail($id);
+        // Hide developer role from admin views - developers are invisible to admins
+        $user = User::with(['timeEntries', 'team'])
+            ->where('role', '!=', 'developer')
+            ->findOrFail($id);
         return response()->json($user);
     }
 
@@ -90,6 +97,10 @@ class UserManagementController extends Controller
             $user->password = Hash::make($validated['password']);
         }
         if ($request->has('role')) {
+            // Prevent admin from changing role to developer - developers are hidden
+            if ($validated['role'] === 'developer') {
+                return response()->json(['error' => 'Invalid role'], 400);
+            }
             $user->role = $validated['role'];
         }
         if ($request->has('team_id')) {
