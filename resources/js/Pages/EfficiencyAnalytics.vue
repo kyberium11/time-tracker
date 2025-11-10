@@ -55,16 +55,52 @@ interface TrendData {
     efficiency: number | null;
 }
 
+interface User {
+    id: number;
+    name: string;
+    email: string;
+}
+
 const loading = ref(false);
 const summary = ref<Summary | null>(null);
 const tasks = ref<Task[]>([]);
 const userEfficiency = ref<UserEfficiency[]>([]);
 const trendData = ref<TrendData[]>([]);
 
+// Filters
+const selectedUserId = ref<number | null>(null);
+const startDate = ref('');
+const endDate = ref('');
+const users = ref<User[]>([]);
+
+const loadUsers = async () => {
+    try {
+        const response = await api.get('/admin/users', { params: { per_page: 1000 } });
+        if (response.data?.data) {
+            users.value = response.data.data;
+        } else if (Array.isArray(response.data)) {
+            users.value = response.data;
+        }
+    } catch (error) {
+        console.error('Error loading users:', error);
+    }
+};
+
 const loadData = async () => {
     loading.value = true;
     try {
-        const response = await api.get('/admin/analytics/efficiency');
+        const params: any = {};
+        if (selectedUserId.value) {
+            params.user_id = selectedUserId.value;
+        }
+        if (startDate.value) {
+            params.start_date = startDate.value;
+        }
+        if (endDate.value) {
+            params.end_date = endDate.value;
+        }
+        
+        const response = await api.get('/admin/analytics/efficiency', { params });
         summary.value = response.data.summary;
         tasks.value = response.data.tasks;
         userEfficiency.value = response.data.user_efficiency;
@@ -77,7 +113,30 @@ const loadData = async () => {
     }
 };
 
+const applyFilters = () => {
+    loadData();
+};
+
+const clearFilters = () => {
+    selectedUserId.value = null;
+    // Reset to default date range (last 30 days)
+    const today = new Date();
+    const thirtyDaysAgo = new Date(today);
+    thirtyDaysAgo.setDate(today.getDate() - 30);
+    endDate.value = today.toISOString().split('T')[0];
+    startDate.value = thirtyDaysAgo.toISOString().split('T')[0];
+    loadData();
+};
+
 onMounted(() => {
+    // Set default date range to last 30 days
+    const today = new Date();
+    const thirtyDaysAgo = new Date(today);
+    thirtyDaysAgo.setDate(today.getDate() - 30);
+    endDate.value = today.toISOString().split('T')[0];
+    startDate.value = thirtyDaysAgo.toISOString().split('T')[0];
+    
+    loadUsers();
     loadData();
 });
 
@@ -228,6 +287,55 @@ const trendChartOptions = {
                 </div>
 
                 <div v-else class="space-y-6">
+                    <!-- Filters -->
+                    <div class="bg-white shadow rounded-lg p-6">
+                        <h3 class="text-lg font-medium text-gray-900 mb-4">Filters</h3>
+                        <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">User</label>
+                                <select
+                                    v-model="selectedUserId"
+                                    class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                >
+                                    <option :value="null">All Users</option>
+                                    <option v-for="user in users" :key="user.id" :value="user.id">
+                                        {{ user.name }}
+                                    </option>
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">Start Date</label>
+                                <input
+                                    v-model="startDate"
+                                    type="date"
+                                    class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                />
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-2">End Date</label>
+                                <input
+                                    v-model="endDate"
+                                    type="date"
+                                    class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                />
+                            </div>
+                            <div class="flex items-end gap-2">
+                                <button
+                                    @click="applyFilters"
+                                    class="px-4 py-2 bg-indigo-600 text-white rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                                >
+                                    Apply Filters
+                                </button>
+                                <button
+                                    @click="clearFilters"
+                                    class="px-4 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 focus:outline-none focus:ring-2 focus:ring-gray-500"
+                                >
+                                    Clear
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    
                     <!-- Summary Cards -->
                     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                         <div class="bg-white overflow-hidden shadow rounded-lg">

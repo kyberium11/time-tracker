@@ -1221,12 +1221,31 @@ class AnalyticsController extends Controller
     public function efficiency(Request $request)
     {
         try {
-            // Get all tasks with estimated time
-            $tasks = Task::whereNotNull('estimated_time')
-                ->with(['user', 'timeEntries' => function ($query) {
-                    $query->whereNotNull('clock_out');
-                }])
-                ->get();
+            // Get filters from request
+            $userId = $request->input('user_id');
+            $startDate = $request->input('start_date');
+            $endDate = $request->input('end_date');
+            
+            // Build query for tasks with estimated time
+            $tasksQuery = Task::whereNotNull('estimated_time');
+            
+            // Filter by user if provided
+            if ($userId) {
+                $tasksQuery->where('user_id', $userId);
+            }
+            
+            // Filter time entries by date range if provided
+            $timeEntriesQuery = function ($query) use ($startDate, $endDate) {
+                $query->whereNotNull('clock_out');
+                if ($startDate) {
+                    $query->whereDate('date', '>=', $startDate);
+                }
+                if ($endDate) {
+                    $query->whereDate('date', '<=', $endDate);
+                }
+            };
+            
+            $tasks = $tasksQuery->with(['user', 'timeEntries' => $timeEntriesQuery])->get();
 
             $taskData = [];
             $totalEstimatedHours = 0;
@@ -1334,7 +1353,14 @@ class AnalyticsController extends Controller
             }
 
             foreach ($weeks as $week) {
-                $weekTasks = Task::whereNotNull('estimated_time')
+                $weekTasksQuery = Task::whereNotNull('estimated_time');
+                
+                // Apply user filter if provided
+                if ($userId) {
+                    $weekTasksQuery->where('user_id', $userId);
+                }
+                
+                $weekTasks = $weekTasksQuery
                     ->whereHas('timeEntries', function ($query) use ($week) {
                         $query->whereNotNull('clock_out')
                             ->whereBetween('date', [$week['start']->toDateString(), $week['end']->toDateString()]);
