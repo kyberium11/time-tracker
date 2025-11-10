@@ -724,6 +724,10 @@ class TimeEntryController extends Controller
         $reportListId = env('CLICKUP_REPORT_LIST_ID');
         if (!$reportListId) { return; }
 
+        // Calculate duration and values first
+        $durationSeconds = max(1, $start->diffInSeconds($end));
+        $totalMins = round($durationSeconds / 60, 3);
+        
         // Use Asia/Manila timezone for description to match custom fields
         $manilaTz = 'Asia/Manila';
         $startManila = $start->clone()->setTimezone($manilaTz);
@@ -731,6 +735,7 @@ class TimeEntryController extends Controller
         $durationFormatted = $this->formatDurationSeconds($durationSeconds);
         $timeInFormatted = $startManila->format('M d,Y H:i:s');
         $timeOutFormatted = $endManila->format('M d, Y H:i:s');
+        $notes = "Time Tracked: {$durationFormatted} by {$userName} ({$timeInFormatted} - {$timeOutFormatted})";
         
         $descParts = [
             'Task ID: ' . ($relatedTaskId ?: 'n/a'),
@@ -750,19 +755,6 @@ class TimeEntryController extends Controller
         $cfNotes = env('CLICKUP_REPORT_CF_NOTES');
 
         $clickupTaskId = (string) $relatedTaskId;
-        $durationSeconds = max(1, $start->diffInSeconds($end));
-        $totalMins = round($durationSeconds / 60, 3);
-        
-        // Use Asia/Manila timezone for Time In/Time Out and Notes
-        $manilaTz = 'Asia/Manila';
-        $startManila = $start->clone()->setTimezone($manilaTz);
-        $endManila = $end->clone()->setTimezone($manilaTz);
-        
-        // Format notes as "Time Tracked: +0h0m0s by User Name (Nov 10,2025 10:37:00 - Nov 10, 2025 10:37:00)"
-        $durationFormatted = $this->formatDurationSeconds($durationSeconds);
-        $timeInFormatted = $startManila->format('M d,Y H:i:s');
-        $timeOutFormatted = $endManila->format('M d, Y H:i:s');
-        $notes = "Time Tracked: {$durationFormatted} by {$userName} ({$timeInFormatted} - {$timeOutFormatted})";
         
         // For Date/Time fields, use Unix timestamp in milliseconds; for text fields, use formatted string in Manila timezone
         // Format: "Nov 10,2025 10:37:00" (no space after comma)
