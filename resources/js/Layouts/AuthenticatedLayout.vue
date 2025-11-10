@@ -62,6 +62,14 @@ const showingNavigationDropdown = ref(false);
                                 >
                                     Analytics
                                 </NavLink>
+                                
+                                <NavLink
+                                    v-if="$page.props.auth.user.role === 'developer'"
+                                    :href="route('deploy.index')"
+                                    :active="route().current('deploy.*')"
+                                >
+                                    Deploy
+                                </NavLink>
                             </div>
                         </div>
 
@@ -192,6 +200,14 @@ const showingNavigationDropdown = ref(false);
                             :active="route().current('analytics.*')"
                         >
                             Analytics
+                        </ResponsiveNavLink>
+                        
+                        <ResponsiveNavLink
+                            v-if="$page.props.auth.user.role === 'developer'"
+                            :href="route('deploy.index')"
+                            :active="route().current('deploy.*')"
+                        >
+                            Deploy
                         </ResponsiveNavLink>
                     </div>
 

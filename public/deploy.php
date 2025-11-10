@@ -11,9 +11,15 @@
 // Simple password protection (change this password!)
 $DEPLOY_PASSWORD = 'deploy123'; // CHANGE THIS PASSWORD!
 
-// Check if password is set
+// Check if accessed from app (developer bypass)
+// Simple token check - in production, use a more secure method
+$isFromApp = isset($_GET['from_app']) && $_GET['from_app'] === '1';
+$developerToken = 'dev_deploy_access_2024'; // Shared secret token
+$hasValidToken = isset($_GET['token']) && $_GET['token'] === $developerToken;
+
+// Check if password is set or if accessed from app with valid token
 session_start();
-if (!isset($_SESSION['authenticated'])) {
+if (!isset($_SESSION['authenticated']) && !($isFromApp && $hasValidToken)) {
     if (isset($_POST['password'])) {
         if ($_POST['password'] === $DEPLOY_PASSWORD) {
             $_SESSION['authenticated'] = true;

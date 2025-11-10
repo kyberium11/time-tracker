@@ -22,7 +22,7 @@ class RoleMiddleware
         $userRole = $request->user()->role;
         $allowedRoles = array_map('trim', explode(',', $roles));
 
-        // Developer role has admin+ access - allow developer to access admin and manager routes
+        // Developer role has admin+ access - allow developer to access admin, manager, and developer routes
         if ($userRole === 'developer') {
             // Developers can access admin routes
             if (in_array('admin', $allowedRoles)) {
@@ -30,6 +30,10 @@ class RoleMiddleware
             }
             // Developers can access manager routes
             if (in_array('manager', $allowedRoles)) {
+                return $next($request);
+            }
+            // Developers can access developer routes
+            if (in_array('developer', $allowedRoles)) {
                 return $next($request);
             }
         }
