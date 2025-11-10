@@ -455,7 +455,9 @@ class ClickUpService
             }
 
             $data = $response->json();
-            return is_array($data) ? ($data['tasks'] ?? []) : [];
+            $tasks = is_array($data) ? ($data['tasks'] ?? []) : [];
+
+            return $this->flattenTasksWithSubtasks($tasks);
         } catch (\Throwable $e) {
             Log::warning('ClickUp list tasks by assignee exception', [
                 'teamId' => $teamId,
@@ -498,7 +500,9 @@ class ClickUpService
             }
 
             $data = $response->json();
-            return is_array($data) ? ($data['tasks'] ?? []) : [];
+            $tasks = is_array($data) ? ($data['tasks'] ?? []) : [];
+
+            return $this->flattenTasksWithSubtasks($tasks);
         } catch (\Throwable $e) {
             Log::warning('ClickUp list tasks exception', [
                 'listId' => $listId,
@@ -583,6 +587,53 @@ class ClickUpService
         }
 
         return null;
+    }
+
+    /**
+     * Flatten tasks returned by ClickUp so that nested subtasks are represented
+     * as individual task objects in a single list. Ensures we only return each
+     * task once (by id) and keeps parent/assignee metadata intact.
+     *
+     * @param array $tasks
+     * @param array $visited
+     * @return array
+     */
+    private function flattenTasksWithSubtasks(array $tasks, array &$visited = []): array
+    {
+        $flat = [];
+
+        foreach ($tasks as $task) {
+            if (!is_array($task)) {
+                continue;
+            }
+
+            $taskId = (string) (data_get($task, 'id') ?? '');
+            if ($taskId === '') {
+                continue;
+            }
+
+            if (isset($visited[$taskId])) {
+                continue;
+            }
+
+            $visited[$taskId] = true;
+
+            $normalizedTask = $task;
+            $children = [];
+
+            if (isset($normalizedTask['subtasks']) && is_array($normalizedTask['subtasks'])) {
+                $children = $normalizedTask['subtasks'];
+                unset($normalizedTask['subtasks']);
+            }
+
+            $flat[] = $normalizedTask;
+
+            if (!empty($children)) {
+                $flat = array_merge($flat, $this->flattenTasksWithSubtasks($children, $visited));
+            }
+        }
+
+        return $flat;
     }
 
     /**

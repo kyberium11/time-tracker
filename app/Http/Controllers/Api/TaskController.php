@@ -114,6 +114,10 @@ class TaskController extends Controller
             $taskId = (string) (data_get($t, 'id') ?? '');
             if ($taskId === '') { continue; }
 
+            if (!$this->clickUpTaskMatchesAssignee($t, $assigneeId, $assigneeEmail)) {
+                continue;
+            }
+
             $clickupName = (string) (data_get($t, 'name') ?: ('Task ' . $taskId));
             $clickupUrl = (string) (data_get($t, 'url') ?: ('https://app.clickup.com/t/' . $taskId));
             $displayTitle = trim($clickupName . ' - ' . $clickupUrl);
@@ -157,6 +161,40 @@ class TaskController extends Controller
         $tasks = $query->get(['id', 'user_id', 'title', 'status', 'priority', 'due_date', 'clickup_task_id', 'estimated_time']);
 
         return response()->json($tasks);
+    }
+
+    /**
+     * Ensure a ClickUp task (or subtask) is assigned to the expected user/email.
+     */
+    private function clickUpTaskMatchesAssignee(array $task, ?string $assigneeId, ?string $assigneeEmail): bool
+    {
+        if (!$assigneeId && !$assigneeEmail) {
+            return true;
+        }
+
+        $assignees = data_get($task, 'assignees', []);
+        if (!is_array($assignees)) {
+            return false;
+        }
+
+        foreach ($assignees as $assignee) {
+            if (!is_array($assignee)) {
+                continue;
+            }
+
+            if ($assigneeId && (string) (data_get($assignee, 'id') ?? '') === $assigneeId) {
+                return true;
+            }
+
+            if ($assigneeEmail) {
+                $email = (string) (data_get($assignee, 'email') ?? '');
+                if ($email !== '' && strcasecmp($email, $assigneeEmail) === 0) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 }
 
