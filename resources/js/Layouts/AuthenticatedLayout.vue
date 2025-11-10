@@ -65,6 +65,14 @@ const showingNavigationDropdown = ref(false);
                                 
                                 <NavLink
                                     v-if="$page.props.auth.user.role === 'developer'"
+                                    :href="route('time-entries.index')"
+                                    :active="route().current('time-entries.*')"
+                                >
+                                    Time Entries
+                                </NavLink>
+                                
+                                <NavLink
+                                    v-if="$page.props.auth.user.role === 'developer'"
                                     :href="route('deploy.index')"
                                     :active="route().current('deploy.*')"
                                 >
@@ -200,6 +208,14 @@ const showingNavigationDropdown = ref(false);
                             :active="route().current('analytics.*')"
                         >
                             Analytics
+                        </ResponsiveNavLink>
+                        
+                        <ResponsiveNavLink
+                            v-if="$page.props.auth.user.role === 'developer'"
+                            :href="route('time-entries.index')"
+                            :active="route().current('time-entries.*')"
+                        >
+                            Time Entries
                         </ResponsiveNavLink>
                         
                         <ResponsiveNavLink

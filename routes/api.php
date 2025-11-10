@@ -85,6 +85,13 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/analytics/user-summary/export/csv', [AnalyticsController::class, 'exportUserSummaryCsv']);
         Route::get('/analytics/user-summary/export/pdf', [AnalyticsController::class, 'exportUserSummaryPdf']);
     });
+
+    // Developer-only routes (time entry management)
+    Route::middleware(['role:developer'])->prefix('admin')->group(function () {
+        Route::get('/time-entries', [TimeEntryController::class, 'index']);
+        Route::put('/time-entries/{id}', [TimeEntryController::class, 'update']);
+        Route::delete('/time-entries/{id}', [TimeEntryController::class, 'destroy']);
+    });
 });
 
 // ClickUp webhook endpoint (no auth; secured via signing secret)

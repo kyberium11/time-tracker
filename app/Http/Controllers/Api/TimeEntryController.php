@@ -888,4 +888,156 @@ class TimeEntryController extends Controller
 
         return sprintf('+%dh%dm%ds', $hours, $minutes, $secs);
     }
+
+    /**
+     * Get all time entries (developer only) with pagination and filters.
+     */
+    public function index(Request $request)
+    {
+        $query = TimeEntry::with(['user', 'task']);
+
+        // Apply filters
+        if ($request->has('date_from')) {
+            $query->whereDate('date', '>=', $request->date_from);
+        }
+        if ($request->has('date_to')) {
+            $query->whereDate('date', '<=', $request->date_to);
+        }
+        if ($request->has('user_id')) {
+            $query->where('user_id', $request->user_id);
+        }
+
+        // Pagination
+        $perPage = $request->get('per_page', 50);
+        $entries = $query->orderBy('date', 'desc')
+            ->orderBy('id', 'desc')
+            ->paginate($perPage);
+
+        return response()->json([
+            'data' => $entries->items(),
+            'total' => $entries->total(),
+            'per_page' => $entries->perPage(),
+            'current_page' => $entries->currentPage(),
+            'last_page' => $entries->lastPage(),
+        ]);
+    }
+
+    /**
+     * Update a time entry (developer only) and sync to ClickUp.
+     */
+    public function update(Request $request, $id)
+    {
+        $entry = TimeEntry::with(['user', 'task'])->findOrFail($id);
+        $originalEntry = clone $entry;
+
+        // Update entry
+        $entry->fill($request->only([
+            'date',
+            'clock_in',
+            'clock_out',
+            'break_start',
+            'break_end',
+            'lunch_start',
+            'lunch_end',
+            'task_id',
+        ]));
+
+        // Recalculate total hours
+        $entry->total_hours = $this->calculateTotalHours($entry);
+        $entry->save();
+
+        $this->logActivity('time_entry_updated', "Updated time entry #{$id}", [
+            'entry_id' => $id,
+            'user_id' => $entry->user_id,
+            'original' => $originalEntry->toArray(),
+            'updated' => $entry->toArray(),
+        ]);
+
+        // Sync to ClickUp
+        $this->syncTimeEntryToClickUp($entry, 'updated');
+
+        return response()->json([
+            'message' => 'Time entry updated successfully',
+            'data' => $entry->load(['user', 'task']),
+        ]);
+    }
+
+    /**
+     * Delete a time entry (developer only) and sync to ClickUp.
+     */
+    public function destroy($id)
+    {
+        $entry = TimeEntry::with(['user', 'task'])->findOrFail($id);
+        $entryData = $entry->toArray();
+
+        // Sync to ClickUp before deletion
+        $this->syncTimeEntryToClickUp($entry, 'deleted');
+
+        $entry->delete();
+
+        $this->logActivity('time_entry_deleted', "Deleted time entry #{$id}", [
+            'entry_id' => $id,
+            'user_id' => $entryData['user_id'],
+            'deleted_entry' => $entryData,
+        ]);
+
+        return response()->json([
+            'message' => 'Time entry deleted successfully',
+        ]);
+    }
+
+    /**
+     * Sync time entry changes to ClickUp.
+     */
+    private function syncTimeEntryToClickUp(TimeEntry $entry, string $action): void
+    {
+        $clickUp = new ClickUpService(
+            env('CLICKUP_API_TOKEN'),
+            env('CLICKUP_SIGNING_SECRET')
+        );
+        $teamId = env('CLICKUP_TEAM_ID');
+
+        if (!$teamId || !$entry->task || !$entry->task->clickup_task_id) {
+            return;
+        }
+
+        $clickupTaskId = (string) $entry->task->clickup_task_id;
+
+        // Update ClickUp task custom fields with aggregated hours
+        $totalHours = TimeEntry::where('task_id', $entry->task_id)->sum('total_hours');
+        $todayHours = TimeEntry::where('task_id', $entry->task_id)
+            ->whereDate('date', Carbon::today())
+            ->sum('total_hours');
+        $weekStart = Carbon::now()->startOfWeek();
+        $weekEnd = Carbon::now()->endOfWeek();
+        $weekHours = TimeEntry::where('task_id', $entry->task_id)
+            ->whereBetween('date', [$weekStart->toDateString(), $weekEnd->toDateString()])
+            ->sum('total_hours');
+
+        $cfTotal = env('CLICKUP_CF_TOTAL_HOURS_ID');
+        $cfToday = env('CLICKUP_CF_TODAY_HOURS_ID');
+        $cfWeek = env('CLICKUP_CF_WEEK_HOURS_ID');
+
+        if ($cfTotal) {
+            $clickUp->updateTaskCustomField($clickupTaskId, (string) $cfTotal, round($totalHours, 2));
+        }
+        if ($cfToday) {
+            $clickUp->updateTaskCustomField($clickupTaskId, (string) $cfToday, round($todayHours, 2));
+        }
+        if ($cfWeek) {
+            $clickUp->updateTaskCustomField($clickupTaskId, (string) $cfWeek, round($weekHours, 2));
+        }
+
+        // Add a comment about the change
+        if ($entry->clock_in && $entry->clock_out) {
+            $user = $entry->user;
+            $start = Carbon::parse($entry->clock_in);
+            $end = Carbon::parse($entry->clock_out);
+            $displayTz = env('CLICKUP_DISPLAY_TZ', config('app.timezone'));
+            $durationSeconds = max(1, $start->diffInSeconds($end));
+            $actionText = $action === 'updated' ? 'Updated' : 'Deleted';
+            $comment = "Time Tracker: {$actionText} " . $this->formatDurationSeconds($durationSeconds) . ' by ' . $user->name . ' (' . $start->clone()->setTimezone($displayTz)->format('Y-m-d H:i:s') . '–' . $end->clone()->setTimezone($displayTz)->format('Y-m-d H:i:s') . ' ' . $displayTz . ')';
+            $clickUp->addTaskComment($clickupTaskId, $comment);
+        }
+    }
 }
