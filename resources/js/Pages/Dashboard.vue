@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed, onUnmounted } from 'vue';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
-import { Head } from '@inertiajs/vue3';
+import { Head, usePage } from '@inertiajs/vue3';
 import api from '@/api';
 
 interface TimeEntry {
@@ -268,20 +268,37 @@ const fetchCurrentEntry = async () => {
     }
 };
 
+const page = usePage();
 const fetchUserRole = async () => {
-    try {
-        const me = await api.get('/admin/users');
-        // Fallback: infer from first page listing current user if available
-        const current = (me.data?.data || []).find((u: any) => u?.id && u?.email);
-        if (current?.role) userRole.value = current.role;
-        if (userRole.value === 'admin' || userRole.value === 'developer') {
-            await loadAdminActivityLogs();
-            setInterval(() => {
-                loadAdminActivityLogs();
-            }, 5000);
+    // Use role from page props (Inertia) - this has the actual role including developer
+    // The API returns developers as "employee" for admin views, so we can't use that
+    const authUser = page.props.auth?.user;
+    if (authUser?.role) {
+        const role = authUser.role as 'admin' | 'manager' | 'employee' | 'developer';
+        if (['admin', 'manager', 'employee', 'developer'].includes(role)) {
+            userRole.value = role;
         }
-    } catch (e) {
-        // ignore; default employee
+    } else {
+        // Fallback: try to get from API if props not available
+        try {
+            const me = await api.get('/admin/users');
+            const current = (me.data?.data || []).find((u: any) => u?.id && u?.email);
+            if (current?.role) {
+                const role = current.role as 'admin' | 'manager' | 'employee' | 'developer';
+                if (['admin', 'manager', 'employee', 'developer'].includes(role)) {
+                    userRole.value = role;
+                }
+            }
+        } catch (e) {
+            // ignore; default employee
+        }
+    }
+    
+    if (userRole.value === 'admin' || userRole.value === 'developer') {
+        await loadAdminActivityLogs();
+        setInterval(() => {
+            loadAdminActivityLogs();
+        }, 5000);
     }
 };
 
