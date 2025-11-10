@@ -294,7 +294,8 @@ const fetchUserRole = async () => {
         }
     }
     
-    if (userRole.value === 'admin' || userRole.value === 'developer') {
+    // Only load admin activity logs for actual admins, not developers
+    if (userRole.value === 'admin') {
         await loadAdminActivityLogs();
         setInterval(() => {
             loadAdminActivityLogs();
@@ -1045,8 +1046,8 @@ const formatTaskContent = (content: string | null | undefined) => {
 
         <div class="py-12">
             <div class="mx-auto max-w-7xl sm:px-6 lg:px-8">
-                <!-- Tab Navigation for Employees -->
-                <div v-if="userRole !== 'admin' && userRole !== 'developer'" class="border-b border-gray-200 mb-6">
+                <!-- Tab Navigation for Employees and Developers -->
+                <div v-if="userRole !== 'admin'" class="border-b border-gray-200 mb-6">
                     <nav class="-mb-px flex space-x-8">
                         <button
                             @click="activeTab = 'dashboard'"
@@ -1076,7 +1077,7 @@ const formatTaskContent = (content: string | null | undefined) => {
                 <!-- Dashboard Tab Content -->
                 <div v-if="activeTab === 'dashboard' || userRole === 'admin' || userRole === 'developer'">
                 <!-- Header Cards: Work Day Timer, Daily Logs -->
-                <div class="mb-6 grid gap-4 md:grid-cols-3" v-if="userRole !== 'admin' && userRole !== 'developer'">
+                <div class="mb-6 grid gap-4 md:grid-cols-3" v-if="userRole !== 'admin'">
                     <!-- Work Day Timer -->
                     <div class="overflow-hidden bg-white shadow sm:rounded-lg">
                         <div class="px-4 py-5 sm:p-6">
@@ -1139,7 +1140,7 @@ const formatTaskContent = (content: string | null | undefined) => {
                 </div>
 
                 <!-- Admin: Real-Time Activity Log -->
-                <div v-if="userRole === 'admin' || userRole === 'developer'" class="mb-6 overflow-hidden bg-white shadow sm:rounded-lg">
+                <div v-if="userRole === 'admin'" class="mb-6 overflow-hidden bg-white shadow sm:rounded-lg">
                     <div class="px-4 py-5 sm:p-6">
                         <div class="flex items-center justify-between mb-4">
                             <h3 class="text-lg font-medium leading-6 text-gray-900">Real-Time Activity Log</h3>
@@ -1171,8 +1172,8 @@ const formatTaskContent = (content: string | null | undefined) => {
                     </div>
                 </div>
 
-                <!-- Manager/Employee: Task List with Play/Pause/Stop -->
-                <div v-if="userRole !== 'admin' && userRole !== 'developer'" class="mb-6 overflow-hidden bg-white shadow sm:rounded-lg">
+                <!-- Manager/Employee/Developer: Task List with Play/Pause/Stop -->
+                <div v-if="userRole !== 'admin'" class="mb-6 overflow-hidden bg-white shadow sm:rounded-lg">
                     <div class="px-4 py-5 sm:p-6">
                         <div class="flex items-center justify-between mb-3">
                             <h3 class="text-lg font-medium leading-6 text-gray-900">My Tasks</h3>
@@ -1306,7 +1307,7 @@ const formatTaskContent = (content: string | null | undefined) => {
                 <!-- End Dashboard Tab Content -->
 
                 <!-- Time Entries Tab Content -->
-                <div v-if="activeTab === 'time-entries' && userRole !== 'admin' && userRole !== 'developer'" class="space-y-6">
+                <div v-if="activeTab === 'time-entries' && userRole !== 'admin'" class="space-y-6">
                     <!-- Filters -->
                     <div class="bg-white shadow rounded-lg p-4">
                         <div class="grid gap-4 sm:grid-cols-2">
