@@ -45,6 +45,7 @@ const dateFrom = ref(new Date().toISOString().split('T')[0]);
 const dateTo = ref(new Date().toISOString().split('T')[0]);
 const userId = ref<number | null>(null);
 const users = ref<Array<{ id: number; name: string; email: string }>>([]);
+const tasks = ref<Array<{ id: number; title: string; user_id: number; user?: { name: string } }>>([]);
 
 // Pagination
 const currentPage = ref(1);
@@ -92,6 +93,20 @@ const loadUsers = async () => {
     }
 };
 
+const loadTasks = async (userId?: number | null) => {
+    try {
+        const params: any = {};
+        if (userId) {
+            params.user_id = userId;
+        }
+        const response = await api.get('/admin/tasks', { params });
+        tasks.value = response.data || [];
+    } catch (e) {
+        console.error('Failed to load tasks', e);
+        tasks.value = [];
+    }
+};
+
 const formatDateTimeLocal = (dateTime: string | null): string => {
     if (!dateTime) return '';
     const date = new Date(dateTime);
@@ -103,7 +118,7 @@ const formatDateTimeLocal = (dateTime: string | null): string => {
     return `${year}-${month}-${day}T${hours}:${minutes}`;
 };
 
-const openEditModal = (entry: TimeEntry) => {
+const openEditModal = async (entry: TimeEntry) => {
     editingEntry.value = {
         ...entry,
         clock_in: entry.clock_in ? formatDateTimeLocal(entry.clock_in) : null,
@@ -113,6 +128,8 @@ const openEditModal = (entry: TimeEntry) => {
         lunch_start: entry.lunch_start ? formatDateTimeLocal(entry.lunch_start) : null,
         lunch_end: entry.lunch_end ? formatDateTimeLocal(entry.lunch_end) : null,
     };
+    // Load tasks for the user of this entry
+    await loadTasks(entry.user_id);
     showEditModal.value = true;
 };
 
@@ -235,6 +252,8 @@ const applyFilters = () => {
 onMounted(() => {
     loadUsers();
     loadTimeEntries();
+    // Load all tasks initially
+    loadTasks();
 });
 </script>
 
@@ -431,6 +450,18 @@ onMounted(() => {
                 </div>
 
                 <div v-if="editingEntry" class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Task</label>
+                        <select
+                            v-model="editingEntry.task_id"
+                            class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                        >
+                            <option :value="null">No Task</option>
+                            <option v-for="task in tasks" :key="task.id" :value="task.id">
+                                {{ task.title }} {{ task.user ? `(${task.user.name})` : '' }}
+                            </option>
+                        </select>
+                    </div>
                     <div>
                         <label class="block text-sm font-medium text-gray-700">Date</label>
                         <input

@@ -91,6 +91,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/time-entries', [TimeEntryController::class, 'index']);
         Route::put('/time-entries/{id}', [TimeEntryController::class, 'update']);
         Route::delete('/time-entries/{id}', [TimeEntryController::class, 'destroy']);
+        Route::get('/tasks', [TaskController::class, 'index']);
     });
 });
 

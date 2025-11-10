@@ -140,6 +140,23 @@ class TaskController extends Controller
 
         return response()->json(['ok' => true, 'count' => $upserted]);
     }
+
+    /**
+     * Get all tasks (developer only) with optional user filter.
+     */
+    public function index(Request $request)
+    {
+        $query = Task::with('user')->orderBy('updated_at', 'desc');
+
+        // Filter by user if provided
+        if ($request->has('user_id')) {
+            $query->where('user_id', $request->user_id);
+        }
+
+        $tasks = $query->get(['id', 'user_id', 'title', 'status', 'priority', 'due_date', 'clickup_task_id', 'estimated_time']);
+
+        return response()->json($tasks);
+    }
 }
 
 
