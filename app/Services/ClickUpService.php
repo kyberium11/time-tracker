@@ -453,25 +453,25 @@ class ClickUpService
                 $pageQuery = $baseQuery;
                 $pageQuery['page'] = $page;
 
-                $response = Http::withHeaders($headers)
+            $response = Http::withHeaders($headers)
                     ->timeout(12)
                     ->get($url, $pageQuery);
 
-                if ($response->failed()) {
-                    Log::warning('ClickUp list tasks by assignee failed', [
-                        'teamId' => $teamId,
-                        'status' => $response->status(),
-                        'body' => $response->body(),
+            if ($response->failed()) {
+                Log::warning('ClickUp list tasks by assignee failed', [
+                    'teamId' => $teamId,
+                    'status' => $response->status(),
+                    'body' => $response->body(),
                         'query' => $pageQuery,
                         'page' => $page,
-                    ]);
+                ]);
                     break;
-                }
+            }
 
-                $data = $response->json();
+            $data = $response->json();
                 $tasks = is_array($data) ? ($data['tasks'] ?? []) : [];
 
-                $flat = $this->flattenTasksWithSubtasks($tasks, $visited);
+                $flat = $this->flattenTasksWithSubtasks($tasks);
                 foreach ($flat as $t) {
                     $id = (string) (data_get($t, 'id') ?? '');
                     if ($id !== '' && !isset($visited[$id])) {
@@ -544,7 +544,7 @@ class ClickUpService
                 $data = $response->json();
                 $tasks = is_array($data) ? ($data['tasks'] ?? []) : [];
 
-                $flat = $this->flattenTasksWithSubtasks($tasks, $visited);
+                $flat = $this->flattenTasksWithSubtasks($tasks);
                 foreach ($flat as $t) {
                     $id = (string) (data_get($t, 'id') ?? '');
                     if ($id !== '' && !isset($visited[$id])) {
@@ -656,40 +656,41 @@ class ClickUpService
      * @param array $visited
      * @return array
      */
-    private function flattenTasksWithSubtasks(array $tasks, array &$visited = []): array
+    private function flattenTasksWithSubtasks(array $tasks): array
     {
         $flat = [];
+        $visited = [];
 
-        foreach ($tasks as $task) {
-            if (!is_array($task)) {
-                continue;
+        $walker = function (array $items) use (&$flat, &$visited, &$walker) {
+            foreach ($items as $task) {
+                if (!is_array($task)) {
+                    continue;
+                }
+
+                $taskId = (string) (data_get($task, 'id') ?? '');
+                if ($taskId === '' || isset($visited[$taskId])) {
+                    continue;
+                }
+
+                $visited[$taskId] = true;
+
+                $normalizedTask = $task;
+                $children = [];
+
+                if (isset($normalizedTask['subtasks']) && is_array($normalizedTask['subtasks'])) {
+                    $children = $normalizedTask['subtasks'];
+                    unset($normalizedTask['subtasks']);
+                }
+
+                $flat[] = $normalizedTask;
+
+                if (!empty($children)) {
+                    $walker($children);
+                }
             }
+        };
 
-            $taskId = (string) (data_get($task, 'id') ?? '');
-            if ($taskId === '') {
-                continue;
-            }
-
-            if (isset($visited[$taskId])) {
-                continue;
-            }
-
-            $visited[$taskId] = true;
-
-            $normalizedTask = $task;
-            $children = [];
-
-            if (isset($normalizedTask['subtasks']) && is_array($normalizedTask['subtasks'])) {
-                $children = $normalizedTask['subtasks'];
-                unset($normalizedTask['subtasks']);
-            }
-
-            $flat[] = $normalizedTask;
-
-            if (!empty($children)) {
-                $flat = array_merge($flat, $this->flattenTasksWithSubtasks($children, $visited));
-            }
-        }
+        $walker($tasks);
 
         return $flat;
     }
