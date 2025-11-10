@@ -265,7 +265,7 @@ class ClickUpService
         }
     }
 
-    public function updateTaskCustomField(string $taskId, string $fieldId, $value): array
+    public function updateTaskCustomField(string $taskId, string $fieldId, $value, bool $isDateTime = false): array
     {
         $headers = [
             'Authorization' => (string) $this->apiToken,
@@ -281,7 +281,18 @@ class ClickUpService
         if ($teamId) { $query['team_id'] = $teamId; }
 
         try {
-            $payload = [ 'value' => $value ];
+            // For Date/Time fields, include value_options with time: true
+            if ($isDateTime && is_numeric($value)) {
+                $payload = [
+                    'value' => (int) $value,
+                    'value_options' => [
+                        'time' => true
+                    ]
+                ];
+            } else {
+                $payload = [ 'value' => $value ];
+            }
+            
             $response = Http::withHeaders($headers)
                 ->timeout(4)
                 ->withOptions(['query' => $query])
@@ -293,6 +304,8 @@ class ClickUpService
                     'fieldId' => $fieldId,
                     'status' => $response->status(),
                     'body' => $response->body(),
+                    'payload' => $payload,
+                    'isDateTime' => $isDateTime,
                 ]);
                 return [ 'error' => true, 'status' => $response->status(), 'body' => (string) $response->body() ];
             }
@@ -302,6 +315,7 @@ class ClickUpService
                 'taskId' => $taskId,
                 'fieldId' => $fieldId,
                 'message' => $e->getMessage(),
+                'isDateTime' => $isDateTime,
             ]);
             return [ 'error' => true, 'status' => 0, 'body' => 'exception: '.$e->getMessage() ];
         }

@@ -578,11 +578,11 @@ class TimeEntryController extends Controller
                 } else { $this->logActivity('clickup_report_cf_missing', 'Missing CF id for User'); }
 
                 if ($cfTimeIn) {
-                    // Try timestamp first (for Date/Time fields), fallback to text if it fails
-                    $res = $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTimeIn, $timeInMs);
+                    // Try timestamp with Date/Time format first (includes value_options with time: true)
+                    $res = $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTimeIn, $timeInMs, true);
                     if (is_array($res) && ($res['error'] ?? false)) {
                         // If timestamp fails, try text format (for text fields)
-                        $res = $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTimeIn, $timeInText);
+                        $res = $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTimeIn, $timeInText, false);
                         if (is_array($res) && ($res['error'] ?? false)) {
                             $this->logActivity('clickup_report_cf_error', 'Failed to set Time In', ['reportTaskId' => $reportTaskId, 'field' => 'TIME_IN', 'response' => $res]);
                         }
@@ -590,11 +590,11 @@ class TimeEntryController extends Controller
                 } else { $this->logActivity('clickup_report_cf_missing', 'Missing CF id for Time In'); }
 
                 if ($cfTimeOut) {
-                    // Try timestamp first (for Date/Time fields), fallback to text if it fails
-                    $res = $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTimeOut, $timeOutMs);
+                    // Try timestamp with Date/Time format first (includes value_options with time: true)
+                    $res = $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTimeOut, $timeOutMs, true);
                     if (is_array($res) && ($res['error'] ?? false)) {
                         // If timestamp fails, try text format (for text fields)
-                        $res = $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTimeOut, $timeOutText);
+                        $res = $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTimeOut, $timeOutText, false);
                         if (is_array($res) && ($res['error'] ?? false)) {
                             $this->logActivity('clickup_report_cf_error', 'Failed to set Time Out', ['reportTaskId' => $reportTaskId, 'field' => 'TIME_OUT', 'response' => $res]);
                         }
@@ -802,22 +802,22 @@ class TimeEntryController extends Controller
                 }
             }
             if ($cfTimeIn) {
-                // Try timestamp first (for Date/Time fields), fallback to text if it fails
-                $res = $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTimeIn, $timeInMs);
+                // Try timestamp with Date/Time format first (includes value_options with time: true)
+                $res = $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTimeIn, $timeInMs, true);
                 if (is_array($res) && ($res['error'] ?? false)) {
                     // If timestamp fails, try text format (for text fields)
-                    $res = $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTimeIn, $timeInText);
+                    $res = $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTimeIn, $timeInText, false);
                     if (is_array($res) && ($res['error'] ?? false)) {
                         $this->logActivity('clickup_report_cf_error', 'Failed to set Time In', ['reportTaskId' => $reportTaskId, 'field' => 'TIME_IN', 'response' => $res, 'eventName' => $eventName]);
                     }
                 }
             }
             if ($cfTimeOut) {
-                // Try timestamp first (for Date/Time fields), fallback to text if it fails
-                $res = $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTimeOut, $timeOutMs);
+                // Try timestamp with Date/Time format first (includes value_options with time: true)
+                $res = $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTimeOut, $timeOutMs, true);
                 if (is_array($res) && ($res['error'] ?? false)) {
                     // If timestamp fails, try text format (for text fields)
-                    $res = $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTimeOut, $timeOutText);
+                    $res = $clickUp->updateTaskCustomField((string) $reportTaskId, (string) $cfTimeOut, $timeOutText, false);
                     if (is_array($res) && ($res['error'] ?? false)) {
                         $this->logActivity('clickup_report_cf_error', 'Failed to set Time Out', ['reportTaskId' => $reportTaskId, 'field' => 'TIME_OUT', 'response' => $res, 'eventName' => $eventName]);
                     }
