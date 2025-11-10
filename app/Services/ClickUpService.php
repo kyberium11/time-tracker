@@ -29,6 +29,11 @@ class ClickUpService
 
     public function getTask(string $taskId): array
     {
+        return $this->getTaskWithTimeout($taskId, 2);
+    }
+
+    private function getTaskWithTimeout(string $taskId, int $timeoutSeconds = 2): array
+    {
         $headers = [
             'Authorization' => (string) $this->apiToken,
         ];
@@ -43,9 +48,8 @@ class ClickUpService
         $query['custom_task_ids'] = 'true';
 
         try {
-            // Keep the webhook response snappy: small timeout, no retries
             $response = Http::withHeaders($headers)
-                ->timeout(2)
+                ->timeout($timeoutSeconds)
                 ->get($base, $query);
 
             if ($response->failed()) {
@@ -518,26 +522,62 @@ class ClickUpService
 
     public function resolveTaskEstimate(array $task, bool $allowFetch = true): ?int
     {
+        // Try direct time_estimate field first
         $estimate = $this->normalizeEstimate(data_get($task, 'time_estimate'));
         if ($estimate !== null) {
+            Log::debug('ClickUp time_estimate found directly', [
+                'taskId' => data_get($task, 'id'),
+                'estimate' => $estimate,
+            ]);
             return $estimate;
         }
 
+        // Try nested time_estimates object
         $nestedEstimate = $this->normalizeEstimate(
             data_get($task, 'time_estimates.total_estimate')
                 ?? data_get($task, 'time_estimates.total_estimated')
                 ?? data_get($task, 'time_estimates.total')
         );
         if ($nestedEstimate !== null) {
+            Log::debug('ClickUp time_estimate found in nested object', [
+                'taskId' => data_get($task, 'id'),
+                'estimate' => $nestedEstimate,
+            ]);
             return $nestedEstimate;
         }
 
+        // If not found and allowed, fetch full task details
         if ($allowFetch) {
             $taskId = data_get($task, 'id');
             if ($taskId) {
-                $detail = $this->getTask((string) $taskId);
+                Log::debug('ClickUp time_estimate not in list response, fetching full task', [
+                    'taskId' => $taskId,
+                ]);
+                
+                // Use a longer timeout for estimate fetching since it's not critical path
+                $detail = $this->getTaskWithTimeout((string) $taskId, 5);
+                
                 if (!isset($detail['__error'])) {
-                    return $this->resolveTaskEstimate($detail, false);
+                    $fetchedEstimate = $this->resolveTaskEstimate($detail, false);
+                    if ($fetchedEstimate !== null) {
+                        Log::info('ClickUp time_estimate found in full task fetch', [
+                            'taskId' => $taskId,
+                            'estimate' => $fetchedEstimate,
+                        ]);
+                    } else {
+                        Log::debug('ClickUp time_estimate still not found after full task fetch', [
+                            'taskId' => $taskId,
+                            'hasTimeEstimate' => isset($detail['time_estimate']),
+                            'hasTimeEstimates' => isset($detail['time_estimates']),
+                            'sampleKeys' => array_slice(array_keys($detail), 0, 20),
+                        ]);
+                    }
+                    return $fetchedEstimate;
+                } else {
+                    Log::warning('ClickUp getTask failed when fetching estimate', [
+                        'taskId' => $taskId,
+                        'error' => $detail['__error'],
+                    ]);
                 }
             }
         }
