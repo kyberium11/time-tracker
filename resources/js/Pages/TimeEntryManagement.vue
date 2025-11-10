@@ -115,7 +115,8 @@ const formatDateTimeLocal = (dateTime: string | null): string => {
     const day = String(date.getDate()).padStart(2, '0');
     const hours = String(date.getHours()).padStart(2, '0');
     const minutes = String(date.getMinutes()).padStart(2, '0');
-    return `${year}-${month}-${day}T${hours}:${minutes}`;
+    const seconds = String(date.getSeconds()).padStart(2, '0');
+    return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}`;
 };
 
 const openEditModal = async (entry: TimeEntry) => {
@@ -142,8 +143,22 @@ const closeEditModal = () => {
 
 const convertDateTimeLocalToISO = (dateTimeLocal: string | null): string | null => {
     if (!dateTimeLocal) return null;
-    // Convert datetime-local format (YYYY-MM-DDTHH:mm) to ISO format
-    const date = new Date(dateTimeLocal);
+    // Convert datetime-local format (YYYY-MM-DDTHH:mm:ss) to ISO format
+    // Handle both with and without seconds
+    let dateStr = dateTimeLocal;
+    if (!dateStr.includes(':')) {
+        return null;
+    }
+    // If seconds are missing, add :00
+    const parts = dateStr.split('T');
+    if (parts.length === 2) {
+        const timeParts = parts[1].split(':');
+        if (timeParts.length === 2) {
+            // Add seconds if missing
+            dateStr = `${parts[0]}T${parts[1]}:00`;
+        }
+    }
+    const date = new Date(dateStr);
     return date.toISOString();
 };
 
@@ -471,20 +486,26 @@ onMounted(() => {
                         />
                     </div>
                     <div>
-                        <label class="block text-sm font-medium text-gray-700">Clock In</label>
+                        <label class="block text-sm font-medium text-gray-700">Start Time</label>
                         <input
                             v-model="editingEntry.clock_in"
-                            type="datetime-local"
+                            type="text"
+                            pattern="\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}"
+                            placeholder="YYYY-MM-DDTHH:mm:ss"
                             class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
                         />
+                        <p class="mt-1 text-xs text-gray-500">Format: YYYY-MM-DDTHH:mm:ss (e.g., 2025-11-10T11:26:30)</p>
                     </div>
                     <div>
-                        <label class="block text-sm font-medium text-gray-700">Clock Out</label>
+                        <label class="block text-sm font-medium text-gray-700">End Time</label>
                         <input
                             v-model="editingEntry.clock_out"
-                            type="datetime-local"
+                            type="text"
+                            pattern="\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}"
+                            placeholder="YYYY-MM-DDTHH:mm:ss"
                             class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
                         />
+                        <p class="mt-1 text-xs text-gray-500">Format: YYYY-MM-DDTHH:mm:ss (e.g., 2025-11-10T11:26:30)</p>
                     </div>
                     <div>
                         <label class="block text-sm font-medium text-gray-700">Break Start</label>
