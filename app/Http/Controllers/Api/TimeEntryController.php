@@ -497,17 +497,22 @@ class TimeEntryController extends Controller
             $clickupTaskId = (string) ($open->task?->clickup_task_id ?? '');
             $start = Carbon::parse($open->clock_in);
             $end = Carbon::parse($open->clock_out);
-            $timeInMs = $start->getTimestampMs();
-            $timeOutMs = $end->getTimestampMs();
             $durationSeconds = max(1, $start->diffInSeconds($end));
             $totalMins = round($durationSeconds / 60, 3); // minutes with second-level precision
-            $notes = 'Time Tracker: +' . round($durationSeconds / 3600, 2) . 'h by ' . $user->name . ' (' . $start->clone()->setTimezone($displayTz)->format('Y-m-d H:i:s') . ' – ' . $end->clone()->setTimezone($displayTz)->format('Y-m-d H:i:s') . ' ' . $displayTz . ')';
-
-            // For Date/Time fields, use Unix timestamp in milliseconds; for text fields, use formatted string
+            
+            // Use Asia/Manila timezone for Time In/Time Out and Notes
+            $manilaTz = 'Asia/Manila';
+            $startManila = $start->clone()->setTimezone($manilaTz);
+            $endManila = $end->clone()->setTimezone($manilaTz);
+            
+            // Format notes as +00h00m00s
+            $notes = $this->formatDurationSeconds($durationSeconds);
+            
+            // For Date/Time fields, use Unix timestamp in milliseconds; for text fields, use formatted string in Manila timezone
             $timeInMs = $start->getTimestampMs();
             $timeOutMs = $end->getTimestampMs();
-            $timeInText = $start->clone()->setTimezone($displayTz)->format('Y-m-d H:i:s') . ' ' . $displayTz;
-            $timeOutText = $end->clone()->setTimezone($displayTz)->format('Y-m-d H:i:s') . ' ' . $displayTz;
+            $timeInText = $startManila->format('Y-m-d H:i:s') . ' ' . $manilaTz;
+            $timeOutText = $endManila->format('Y-m-d H:i:s') . ' ' . $manilaTz;
 
             $customFields = [];
             if ($cfTaskId) { $customFields[] = ['id' => (string) $cfTaskId, 'value' => $clickupTaskId]; }
@@ -715,12 +720,20 @@ class TimeEntryController extends Controller
         $clickupTaskId = (string) $relatedTaskId;
         $durationSeconds = max(1, $start->diffInSeconds($end));
         $totalMins = round($durationSeconds / 60, 3);
-        $notes = $eventName . ': +' . round($durationSeconds / 3600, 2) . 'h by ' . $userName . ' (' . $start->clone()->setTimezone($displayTz)->format('Y-m-d H:i:s') . ' – ' . $end->clone()->setTimezone($displayTz)->format('Y-m-d H:i:s') . ' ' . $displayTz . ')';
-        // For Date/Time fields, use Unix timestamp in milliseconds; for text fields, use formatted string
+        
+        // Use Asia/Manila timezone for Time In/Time Out and Notes
+        $manilaTz = 'Asia/Manila';
+        $startManila = $start->clone()->setTimezone($manilaTz);
+        $endManila = $end->clone()->setTimezone($manilaTz);
+        
+        // Format notes as +00h00m00s
+        $notes = $this->formatDurationSeconds($durationSeconds);
+        
+        // For Date/Time fields, use Unix timestamp in milliseconds; for text fields, use formatted string in Manila timezone
         $timeInMs = $start->getTimestampMs();
         $timeOutMs = $end->getTimestampMs();
-        $timeInText = $start->clone()->setTimezone($displayTz)->format('Y-m-d H:i:s') . ' ' . $displayTz;
-        $timeOutText = $end->clone()->setTimezone($displayTz)->format('Y-m-d H:i:s') . ' ' . $displayTz;
+        $timeInText = $startManila->format('Y-m-d H:i:s') . ' ' . $manilaTz;
+        $timeOutText = $endManila->format('Y-m-d H:i:s') . ' ' . $manilaTz;
 
         $customFields = [];
         if ($cfTaskId) { $customFields[] = ['id' => (string) $cfTaskId, 'value' => $clickupTaskId]; }
@@ -826,7 +839,7 @@ class TimeEntryController extends Controller
     }
 
     /**
-     * Format a duration in seconds as Hh Mm Ss, omitting zero units except seconds.
+     * Format a duration in seconds as +00h00m00s (e.g., +2h30m15s).
      */
     private function formatDurationSeconds(int $seconds): string
     {
@@ -834,10 +847,6 @@ class TimeEntryController extends Controller
         $minutes = intdiv($seconds % 3600, 60);
         $secs = $seconds % 60;
 
-        $parts = [];
-        if ($hours > 0) { $parts[] = $hours . 'h'; }
-        if ($minutes > 0 || $hours > 0) { $parts[] = $minutes . 'm'; }
-        $parts[] = $secs . 's';
-        return implode(' ', $parts);
+        return sprintf('+%02dh%02dm%02ds', $hours, $minutes, $secs);
     }
 }
