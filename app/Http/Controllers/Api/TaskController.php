@@ -125,8 +125,8 @@ class TaskController extends Controller
         }
         $extraQuery = [];
         if (count($spaceIds) > 0) {
-            // ClickUp API supports multiple space_ids[] filters
-            $extraQuery['space_ids[]'] = $spaceIds;
+            // ClickUp team task search accepts a comma-separated list for space_ids
+            $extraQuery['space_ids'] = implode(',', $spaceIds);
         }
 
         // Fetch tasks across all configured teams and merge/deduplicate (optionally filtered by spaces)
