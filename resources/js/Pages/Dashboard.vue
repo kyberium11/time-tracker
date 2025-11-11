@@ -53,6 +53,7 @@ const selectedTaskId = ref<number | null>(null); // deprecated UI, will be remov
 const runningTaskId = ref<number | null>(null);
 const showDailyLogs = ref(false);
 const todayEntries = ref<any[]>([]);
+const todayWorkSeconds = ref<number>(0);
 const taskEntries = ref<any[]>([]);
 const taskDetails = ref<any | null>(null);
 const showTaskModal = ref(false);
@@ -244,6 +245,8 @@ onMounted(() => {
     fetchUserRole();
     fetchMyTasks();
     fetchTodayTaskEntries();
+    // Preload today's full entries for accurate daily logs and 0/8 hours
+    loadTodayEntries();
     // Update clock every second
     timeInterval = window.setInterval(() => {
         currentTime.value = new Date();
@@ -453,44 +456,96 @@ const runningTaskDisplay = computed(() => {
 
 // Total working hours today for 0/8 Hours display
 const workingHoursToday = computed(() => {
-    const entry = currentEntry.value;
-    if (!entry || !entry.clock_in) return 0;
-    const clockIn = new Date(entry.clock_in);
-    const end = entry.clock_out ? new Date(entry.clock_out) : currentTime.value;
-    let minutes = Math.max(0, Math.floor((end.getTime() - clockIn.getTime()) / 60000));
-
-    // Subtract break duration
-    if (entry.break_start && entry.break_end) {
-        const bs = new Date(entry.break_start);
-        const be = new Date(entry.break_end);
-        minutes -= Math.max(0, Math.floor((be.getTime() - bs.getTime()) / 60000));
-    } else if (entry.break_start && !entry.break_end) {
-        const bs = new Date(entry.break_start);
-        minutes -= Math.max(0, Math.floor((currentTime.value.getTime() - bs.getTime()) / 60000));
-    }
-
-    // Subtract lunch duration
-    if (entry.lunch_start && entry.lunch_end) {
-        const ls = new Date(entry.lunch_start);
-        const le = new Date(entry.lunch_end);
-        minutes -= Math.max(0, Math.floor((le.getTime() - ls.getTime()) / 60000));
-    } else if (entry.lunch_start && !entry.lunch_end) {
-        const ls = new Date(entry.lunch_start);
-        minutes -= Math.max(0, Math.floor((currentTime.value.getTime() - ls.getTime()) / 60000));
-    }
-
-    return (Math.max(0, minutes) / 60).toFixed(2);
+    // Use aggregated seconds across all today's sessions
+    const hours = (todayWorkSeconds.value || 0) / 3600;
+    return hours.toFixed(2);
 });
 
 const openDailyLogs = async () => {
+    await loadTodayEntries();
+    showDailyLogs.value = true;
+};
+
+// Load ALL entries for today and build rows/summary (used for modal and 0/8)
+const loadTodayEntries = async () => {
     try {
-        // Reuse myEntries? We only have /time-entries/my-entries paginated; fetch current day by currentEntry
-        showDailyLogs.value = true;
-        // Compose a single-entry array for now based on currentEntry and its segments
-        todayEntries.value = [currentEntry.value].filter(Boolean);
+        const iso = new Date().toISOString().split('T')[0];
+        const res = await api.get('/my/time-entries', {
+            params: { start_date: iso, end_date: iso },
+        });
+        const list: any[] = res.data?.entries || [];
+        const rows: any[] = [];
+        let workSeconds = 0;
+        let totalBreakSeconds = 0;
+
+        list.forEach((e: any) => {
+            // Break entries
+            if (e.is_break || e.entry_type === 'break') {
+                const cin = parseDateTime(e.clock_in);
+                const cout = parseDateTime(e.clock_out);
+                if (cin && cout) {
+                    const dur = Math.max(0, Math.floor((cout.getTime() - cin.getTime()) / 1000));
+                    totalBreakSeconds += dur;
+                    rows.push({
+                        name: 'Break',
+                        start: e.clock_in_formatted || e.clock_in,
+                        end: e.clock_out_formatted || e.clock_out,
+                        durationSeconds: dur,
+                        breakDurationSeconds: dur,
+                        notes: '-'
+                    });
+                }
+                return;
+            }
+            const cin = parseDateTime(e.clock_in);
+            const cout = parseDateTime(e.clock_out);
+            const hasTask = e.task && (e.task.title || e.task.name);
+
+            // Work hours (no task)
+            if (cin && cout && !hasTask) {
+                const workDur = Math.max(0, Math.floor((cout.getTime() - cin.getTime()) / 1000));
+                // subtract lunch if present
+                const ls = parseDateTime(e.lunch_start);
+                const le = parseDateTime(e.lunch_end);
+                let lunchDur = 0;
+                if (ls && le) lunchDur = Math.max(0, Math.floor((le.getTime() - ls.getTime()) / 1000));
+                const net = Math.max(0, workDur - lunchDur);
+                workSeconds += net;
+                rows.push({
+                    name: 'Work Hours',
+                    start: e.clock_in_formatted || e.clock_in,
+                    end: e.clock_out_formatted || e.clock_out,
+                    durationSeconds: net,
+                    breakDurationSeconds: 0,
+                    notes: '-'
+                });
+            }
+
+            // Task entries
+            if (hasTask && cin && cout) {
+                const taskDur = Math.max(0, Math.floor((cout.getTime() - cin.getTime()) / 1000));
+                rows.push({
+                    name: e.task.title || e.task.name,
+                    start: e.clock_in_formatted || e.clock_in,
+                    end: e.clock_out_formatted || e.clock_out,
+                    durationSeconds: taskDur,
+                    breakDurationSeconds: 0,
+                    notes: '-'
+                });
+            }
+        });
+
+        rows.sort((a, b) => {
+            const da = new Date(a.start).getTime();
+            const db = new Date(b.start).getTime();
+            return (isNaN(db) ? 0 : db) - (isNaN(da) ? 0 : da);
+        });
+
+        todayEntries.value = rows;
+        todayWorkSeconds.value = workSeconds;
     } catch (e) {
-        showDailyLogs.value = true;
         todayEntries.value = [];
+        todayWorkSeconds.value = 0;
     }
 };
 
@@ -517,6 +572,7 @@ const clockIn = async (taskId?: number | null) => {
         await api.post('/time-entries/clock-in', payload);
         await fetchCurrentEntry();
         await fetchMyTasks();
+        await loadTodayEntries();
     } catch (error: any) {
         alert(error.response?.data?.message || 'Error clocking in');
     } finally {
@@ -535,6 +591,7 @@ const clockOut = async () => {
         await api.post('/time-entries/clock-out');
         await fetchCurrentEntry();
         await fetchMyTasks();
+        await loadTodayEntries();
     } catch (error: any) {
         alert(error.response?.data?.message || 'Error clocking out');
     } finally {
@@ -548,6 +605,7 @@ const startBreak = async () => {
         await api.post('/time-entries/break-start');
         await fetchCurrentEntry();
         await fetchMyTasks();
+        await loadTodayEntries();
     } catch (error: any) {
         alert(error.response?.data?.message || 'Error starting break');
     } finally {
@@ -561,6 +619,7 @@ const endBreak = async () => {
         await api.post('/time-entries/break-end');
         await fetchCurrentEntry();
         await fetchMyTasks();
+        await loadTodayEntries();
     } catch (error: any) {
         alert(error.response?.data?.message || 'Error ending break');
     } finally {
