@@ -77,7 +77,7 @@ class AnalyticsController extends Controller
                     ->get();
             } elseif ($user->role === 'admin' || $user->role === 'developer') {
                 // Admins and developers see all data
-                $users = User::where('role', 'employee')->get();
+                $users = User::whereIn('role', ['employee', 'manager', 'developer'])->get();
                 $entries = TimeEntry::whereBetween('date', [$startDate, $endDate])
                     ->whereNotNull('clock_out')
                     ->get();
@@ -661,7 +661,8 @@ class AnalyticsController extends Controller
                 ->where('team_id', $user->managedTeam->id)
                 ->get(['id', 'name', 'email']);
         } else {
-            $users = User::where('role', 'employee')->get(['id', 'name', 'email']);
+            // Admins and developers see all roles in dropdown
+            $users = User::whereIn('role', ['employee', 'manager', 'developer'])->get(['id', 'name', 'email']);
         }
         
         return response()->json($users);
@@ -1193,7 +1194,7 @@ class AnalyticsController extends Controller
             $query->whereBetween('date', [$startDate, $endDate])
                   ->whereNotNull('clock_out');
         }])
-        ->where('role', 'employee');
+        ->whereIn('role', ['employee', 'manager', 'developer']);
 
         // If user is a manager, filter by their team
         if ($user->role === 'manager' && $user->managedTeam) {
