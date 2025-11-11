@@ -99,15 +99,50 @@ class TaskController extends Controller
             return response()->json(['error' => 'Unauthorized'], 401);
         }
 
-        $teamId = (string) (env('CLICKUP_TEAM_ID') ?? '');
-        if ($teamId === '') {
-            return response()->json(['error' => 'CLICKUP_TEAM_ID is not configured'], 400);
+        // Support multiple ClickUp team IDs via CLICKUP_TEAM_IDS (comma-separated) or single CLICKUP_TEAM_ID
+        $teamIdsEnv = (string) (env('CLICKUP_TEAM_IDS') ?? '');
+        $teamIdSingle = (string) (env('CLICKUP_TEAM_ID') ?? '');
+        $teamIds = [];
+        if ($teamIdsEnv !== '') {
+            $teamIds = array_values(array_filter(array_map(fn($s) => trim($s), explode(',', $teamIdsEnv)), fn($s) => $s !== ''));
+        }
+        if ($teamIdSingle !== '') {
+            $teamIds[] = $teamIdSingle;
+        }
+        $teamIds = array_values(array_unique($teamIds));
+        if (count($teamIds) === 0) {
+            return response()->json(['error' => 'CLICKUP_TEAM_ID or CLICKUP_TEAM_IDS is not configured'], 400);
         }
 
         $assigneeId = $user->clickup_user_id ? (string) $user->clickup_user_id : null;
         $assigneeEmail = !$assigneeId ? (string) $user->email : null;
 
-        $tasks = $clickUp->listTeamTasksByAssignee($teamId, $assigneeId, $assigneeEmail);
+        // Optional: filter by specific spaces within the same team(s)
+        $spaceIdsEnv = (string) (env('CLICKUP_SPACE_IDS') ?? '');
+        $spaceIds = [];
+        if ($spaceIdsEnv !== '') {
+            $spaceIds = array_values(array_filter(array_map(fn($s) => trim($s), explode(',', $spaceIdsEnv)), fn($s) => $s !== ''));
+        }
+        $extraQuery = [];
+        if (count($spaceIds) > 0) {
+            // ClickUp API supports multiple space_ids[] filters
+            $extraQuery['space_ids[]'] = $spaceIds;
+        }
+
+        // Fetch tasks across all configured teams and merge/deduplicate (optionally filtered by spaces)
+        $allTasks = [];
+        $seen = [];
+        foreach ($teamIds as $teamId) {
+            $tasksChunk = $clickUp->listTeamTasksByAssignee((string) $teamId, $assigneeId, $assigneeEmail, $extraQuery);
+            foreach ($tasksChunk as $t) {
+                $tid = (string) (data_get($t, 'id') ?? '');
+                if ($tid !== '' && !isset($seen[$tid])) {
+                    $seen[$tid] = true;
+                    $allTasks[] = $t;
+                }
+            }
+        }
+        $tasks = $allTasks;
 
         $upserted = 0;
         foreach ($tasks as $t) {
