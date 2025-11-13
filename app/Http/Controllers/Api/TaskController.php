@@ -156,41 +156,98 @@ class TaskController extends Controller
         }
         $tasks = $allTasks;
 
-        $upserted = 0;
+        $created = [];
+        $updated = [];
+        $unchanged = 0;
+        $skipped = [];
+
         foreach ($tasks as $t) {
             $taskId = (string) (data_get($t, 'id') ?? '');
-            if ($taskId === '') { continue; }
+            if ($taskId === '') {
+                $skipped[] = [
+                    'id' => '(unknown)',
+                    'reason' => 'Missing task ID from ClickUp payload',
+                ];
+                continue;
+            }
 
             if (!$this->clickUpTaskMatchesAssignee($t, $assigneeId, $assigneeEmail)) {
+                $skipped[] = [
+                    'id' => $taskId,
+                    'reason' => 'Task not assigned to the authenticated user',
+                ];
                 continue;
             }
 
             $clickupName = (string) (data_get($t, 'name') ?: ('Task ' . $taskId));
             $clickupUrl = (string) (data_get($t, 'url') ?: ('https://app.clickup.com/t/' . $taskId));
             $displayTitle = trim($clickupName . ' - ' . $clickupUrl);
+            $priority = (string) (
+                data_get($t, 'priority.label')
+                ?: data_get($t, 'priority.priority')
+                ?: data_get($t, 'priority')
+                ?: ''
+            ) ?: null;
+            $dueDate = ($ms = data_get($t, 'due_date')) ? Carbon::createFromTimestampMs((int) $ms) : null;
 
-            Task::updateOrCreate(
-                ['clickup_task_id' => $taskId],
-                [
-                    'user_id' => $user->id,
-                    'title' => $displayTitle,
-                    'description' => (string) data_get($t, 'text_content'),
-                    'status' => (string) data_get($t, 'status.status'),
-                    'priority' => (string) (
-                        data_get($t, 'priority.label')
-                        ?: data_get($t, 'priority.priority')
-                        ?: data_get($t, 'priority')
-                        ?: null
-                    ),
-                    'clickup_parent_id' => (string) (data_get($t, 'parent') ?: null),
-                    'due_date' => ($ms = data_get($t, 'due_date')) ? Carbon::createFromTimestampMs((int)$ms) : null,
-                    'estimated_time' => $clickUp->resolveTaskEstimate($t),
-                ]
-            );
-            $upserted++;
+            $task = Task::firstOrNew(['clickup_task_id' => $taskId]);
+            $wasCreated = !$task->exists;
+
+            $task->fill([
+                'user_id' => $user->id,
+                'title' => $displayTitle,
+                'description' => (string) data_get($t, 'text_content'),
+                'status' => (string) data_get($t, 'status.status'),
+                'priority' => $priority,
+                'clickup_parent_id' => (string) (data_get($t, 'parent') ?: null),
+                'due_date' => $dueDate,
+                'estimated_time' => $clickUp->resolveTaskEstimate($t),
+            ]);
+
+            $dirty = $task->isDirty();
+            $task->save();
+
+            $taskPayload = [
+                'id' => $taskId,
+                'title' => $task->title,
+                'status' => $task->status,
+                'priority' => $task->priority,
+                'due_date' => $task->due_date ? $task->due_date->toIso8601String() : null,
+            ];
+
+            if ($wasCreated) {
+                $created[] = $taskPayload;
+            } elseif ($dirty) {
+                $updated[] = $taskPayload;
+            } else {
+                $unchanged++;
+            }
         }
 
-        return response()->json(['ok' => true, 'count' => $upserted]);
+        $sources = [];
+        foreach ($teamIds as $teamId) {
+            $sources[] = 'Team ' . $teamId;
+        }
+        foreach ($spaceIds as $spaceId) {
+            $sources[] = 'Space ' . $spaceId;
+        }
+
+        $summary = [
+            'total' => count($created) + count($updated) + $unchanged,
+            'created' => count($created),
+            'updated' => count($updated),
+            'unchanged' => $unchanged,
+            'skipped' => count($skipped),
+        ];
+
+        return response()->json([
+            'ok' => true,
+            'summary' => $summary,
+            'created' => $created,
+            'updated' => $updated,
+            'skipped' => $skipped,
+            'sources' => $sources,
+        ]);
     }
 
     /**

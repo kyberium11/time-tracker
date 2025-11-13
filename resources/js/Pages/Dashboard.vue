@@ -57,6 +57,15 @@ const todayWorkSeconds = ref<number>(0);
 const taskEntries = ref<any[]>([]);
 const taskDetails = ref<any | null>(null);
 const showTaskModal = ref(false);
+const showTaskSyncModal = ref(false);
+const taskSyncLoading = ref(false);
+const taskSyncResult = ref<{
+    summary: { total: number; created: number; updated: number; unchanged: number; skipped: number };
+    created: Array<{ id: string; title: string; status: string | null; priority: string | null; due_date: string | null }>;
+    updated: Array<{ id: string; title: string; status: string | null; priority: string | null; due_date: string | null }>;
+    skipped: Array<{ id: string; reason: string }>;
+    sources: string[];
+} | null>(null);
 
 // Tab system for employees
 const activeTab = ref<'dashboard' | 'time-entries'>('dashboard');
@@ -316,14 +325,36 @@ const fetchMyTasks = async () => {
     }
 };
 
+const resetTaskSyncModal = () => {
+    showTaskSyncModal.value = false;
+    taskSyncResult.value = null;
+};
+
 const refreshMyTasksFromClickUp = async () => {
+    taskSyncLoading.value = true;
     try {
         const res = await api.post('/my/clickup/sync-tasks');
-        const count = res.data?.count ?? 0;
         await fetchMyTasks();
-        alert(`Synced ${count} task(s) from ClickUp.`);
+
+        const summary = res.data?.summary ?? {};
+        taskSyncResult.value = {
+            summary: {
+                total: summary.total ?? 0,
+                created: summary.created ?? 0,
+                updated: summary.updated ?? 0,
+                unchanged: summary.unchanged ?? 0,
+                skipped: summary.skipped ?? 0,
+            },
+            created: res.data?.created ?? [],
+            updated: res.data?.updated ?? [],
+            skipped: res.data?.skipped ?? [],
+            sources: res.data?.sources ?? [],
+        };
+        showTaskSyncModal.value = true;
     } catch (e: any) {
         alert(e?.response?.data?.error || 'Failed to sync tasks from ClickUp');
+    } finally {
+        taskSyncLoading.value = false;
     }
 };
 
@@ -1005,6 +1036,15 @@ const formatSecondsToHHMMSS = (sec: number | null | undefined) => {
     return `${pad(h)}:${pad(m)}:${pad(s)}`;
 };
 
+const formatDateLabel = (value: string | null | undefined) => {
+    if (!value) return '--';
+    const dt = new Date(value);
+    if (isNaN(dt.getTime())) {
+        return value;
+    }
+    return dt.toLocaleDateString('en-US', { month: 'short', day: '2-digit', year: 'numeric' });
+};
+
 // Format estimated time from milliseconds to HH:MM:SS
 const formatEstimatedTime = (ms: number | null | undefined) => {
     if (!ms || ms === 0) return '--';
@@ -1317,7 +1357,17 @@ const formatTaskContent = (content: string | null | undefined) => {
                         <div class="flex items-center justify-between mb-3">
                             <h3 class="text-lg font-medium leading-6 text-gray-900">My Tasks</h3>
                             <div class="flex items-center gap-2">
-                                <button @click="refreshMyTasksFromClickUp" class="rounded-md bg-green-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-green-700">Refresh from ClickUp</button>
+                                <button
+                                    @click="refreshMyTasksFromClickUp"
+                                    :disabled="taskSyncLoading"
+                                    class="rounded-md bg-green-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-green-700 disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2"
+                                >
+                                    <span
+                                        v-if="taskSyncLoading"
+                                        class="h-3 w-3 rounded-full border-2 border-white border-t-transparent animate-spin"
+                                    ></span>
+                                    <span>{{ taskSyncLoading ? 'Syncing…' : 'Refresh from ClickUp' }}</span>
+                                </button>
                                 <input v-model="taskSearch" @input="goTaskPage(1)" type="text" placeholder="Search tasks" class="rounded-md border-gray-300 text-sm shadow-sm" />
                                 <select v-model="taskStatusFilter" @change="goTaskPage(1)" class="rounded-md border-gray-300 text-sm shadow-sm">
                                     <option value="all">All</option>
@@ -1568,6 +1618,103 @@ const formatTaskContent = (content: string | null | undefined) => {
                                     </tr>
                                 </tbody>
                             </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Task Sync Summary Modal -->
+            <div v-if="showTaskSyncModal && taskSyncResult" class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+                <div class="w-full max-w-3xl rounded-lg bg-white shadow-lg">
+                    <div class="flex items-center justify-between border-b px-4 py-3">
+                        <h4 class="text-md font-semibold">ClickUp Sync Summary</h4>
+                        <button @click="resetTaskSyncModal" class="rounded-md bg-gray-100 px-2 py-1 text-xs hover:bg-gray-200">Close</button>
+                    </div>
+                    <div class="p-5 text-sm text-gray-700 space-y-5">
+                        <div class="space-y-1">
+                            <p>Latest sync completed successfully.</p>
+                            <p v-if="taskSyncResult.sources.length" class="text-xs text-gray-500">
+                                Sources:
+                                <span class="font-medium text-gray-600">{{ taskSyncResult.sources.join(', ') }}</span>
+                            </p>
+                        </div>
+                        <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+                            <div class="rounded-md bg-indigo-50 px-4 py-3">
+                                <div class="text-xs uppercase tracking-wide text-indigo-600">Total Processed</div>
+                                <div class="text-xl font-semibold text-indigo-900">{{ taskSyncResult.summary.total }}</div>
+                            </div>
+                            <div class="rounded-md bg-green-50 px-4 py-3">
+                                <div class="text-xs uppercase tracking-wide text-green-600">Created</div>
+                                <div class="text-xl font-semibold text-green-900">{{ taskSyncResult.summary.created }}</div>
+                            </div>
+                            <div class="rounded-md bg-blue-50 px-4 py-3">
+                                <div class="text-xs uppercase tracking-wide text-blue-600">Updated</div>
+                                <div class="text-xl font-semibold text-blue-900">{{ taskSyncResult.summary.updated }}</div>
+                            </div>
+                            <div class="rounded-md bg-gray-100 px-4 py-3">
+                                <div class="text-xs uppercase tracking-wide text-gray-600">No Changes</div>
+                                <div class="text-xl font-semibold text-gray-900">{{ taskSyncResult.summary.unchanged }}</div>
+                            </div>
+                            <div class="rounded-md bg-amber-50 px-4 py-3">
+                                <div class="text-xs uppercase tracking-wide text-amber-600">Skipped</div>
+                                <div class="text-xl font-semibold text-amber-900">{{ taskSyncResult.summary.skipped }}</div>
+                            </div>
+                        </div>
+
+                        <div v-if="taskSyncResult.created.length" class="space-y-2">
+                            <h5 class="text-sm font-semibold text-gray-900">New tasks</h5>
+                            <ul class="max-h-48 overflow-y-auto space-y-2 pr-1">
+                                <li
+                                    v-for="item in taskSyncResult.created"
+                                    :key="'created-' + item.id"
+                                    class="rounded-md border border-green-200 bg-green-50 px-3 py-2"
+                                >
+                                    <div class="flex items-start justify-between gap-3">
+                                        <span class="font-medium text-green-900 leading-tight">{{ item.title }}</span>
+                                        <span class="text-xs text-green-700 whitespace-nowrap">{{ formatDateLabel(item.due_date) }}</span>
+                                    </div>
+                                    <div class="mt-1 flex flex-wrap gap-3 text-xs text-green-800">
+                                        <span v-if="item.status">Status: {{ item.status }}</span>
+                                        <span v-if="item.priority">Priority: {{ item.priority }}</span>
+                                    </div>
+                                </li>
+                            </ul>
+                        </div>
+
+                        <div v-if="taskSyncResult.updated.length" class="space-y-2">
+                            <h5 class="text-sm font-semibold text-gray-900">Updated tasks</h5>
+                            <ul class="max-h-48 overflow-y-auto space-y-2 pr-1">
+                                <li
+                                    v-for="item in taskSyncResult.updated"
+                                    :key="'updated-' + item.id"
+                                    class="rounded-md border border-blue-200 bg-blue-50 px-3 py-2"
+                                >
+                                    <div class="flex items-start justify-between gap-3">
+                                        <span class="font-medium text-blue-900 leading-tight">{{ item.title }}</span>
+                                        <span class="text-xs text-blue-700 whitespace-nowrap">{{ formatDateLabel(item.due_date) }}</span>
+                                    </div>
+                                    <div class="mt-1 flex flex-wrap gap-3 text-xs text-blue-800">
+                                        <span v-if="item.status">Status: {{ item.status }}</span>
+                                        <span v-if="item.priority">Priority: {{ item.priority }}</span>
+                                    </div>
+                                </li>
+                            </ul>
+                        </div>
+
+                        <div v-if="taskSyncResult.skipped.length" class="space-y-2">
+                            <h5 class="text-sm font-semibold text-gray-900">Skipped items</h5>
+                            <ul class="max-h-40 overflow-y-auto space-y-1 pr-1">
+                                <li
+                                    v-for="item in taskSyncResult.skipped"
+                                    :key="'skipped-' + item.id"
+                                    class="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900"
+                                >
+                                    <div class="flex items-start justify-between gap-3">
+                                        <span class="font-medium leading-tight">{{ item.id }}</span>
+                                        <span class="text-amber-700">{{ item.reason }}</span>
+                                    </div>
+                                </li>
+                            </ul>
                         </div>
                     </div>
                 </div>
