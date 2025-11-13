@@ -194,9 +194,6 @@ interface ActivityLog {
 }
 
 const activeTab = ref<'overview' | 'summary' | 'activity'>('overview');
-const overviewPeriod = ref('month');
-const overviewData = ref<any>(null);
-const overviewLoading = ref(false);
 const selectedUser = ref<number | null>(null);
 const summaryDate = ref('');
 const allUsers = ref<Array<{ id: number; name: string }>>([]);
@@ -225,20 +222,6 @@ const activityLogs = ref<ActivityLog[]>([]);
 const activityLogsLoading = ref(false);
 const selectedActionFilter = ref('');
 const lastPollTimestamp = ref<number>(Date.now());
-
-const formatHoursToHMS = (hours: number | string) => {
-    if (typeof hours === 'string' && /h\s+\d{2}m\s+\d{2}s/.test(hours)) {
-        return hours;
-    }
-    const parsed = Number(hours);
-    if (!isFinite(parsed)) return '00h 00m 00s';
-    const totalSeconds = Math.round(parsed * 3600);
-    const h = Math.floor(totalSeconds / 3600);
-    const m = Math.floor((totalSeconds % 3600) / 60);
-    const s = totalSeconds % 60;
-    const pad = (n: number) => (n < 10 ? `0${n}` : `${n}`);
-    return `${pad(h)}h ${pad(m)}m ${pad(s)}s`;
-};
 
 const formatSecondsToHHMMSS = (sec: number | null | undefined) => {
     const total = typeof sec === 'number' && isFinite(sec) ? Math.max(0, Math.floor(sec)) : 0;
@@ -311,21 +294,6 @@ const computeEntryHHMMSS = (entry: TimeEntry) => {
     const le = parseDateTime(entry.lunch_end);
     if (ls && le) seconds -= Math.max(0, Math.floor((le.getTime() - ls.getTime()) / 1000));
     return formatSecondsToHHMMSS(Math.max(0, seconds));
-};
-
-const loadOverviewData = async () => {
-    overviewLoading.value = true;
-    try {
-        const response = await api.get('/admin/analytics/overview', {
-            params: { period: overviewPeriod.value },
-        });
-        overviewData.value = response.data;
-    } catch (error) {
-        console.error('Error loading overview:', error);
-        alert('Failed to load overview data');
-    } finally {
-        overviewLoading.value = false;
-    }
 };
 
 const loadUsers = async () => {
@@ -479,24 +447,6 @@ const loadActivityLogs = async (silent = false) => {
     }
 };
 
-const exportCsv = () => {
-    const params = new URLSearchParams({
-        period: overviewPeriod.value,
-        start_date: summaryDate.value,
-        end_date: summaryDate.value,
-    });
-    window.location.href = `/api/admin/analytics/export/csv?${params.toString()}`;
-};
-
-const exportPdf = () => {
-    const params = new URLSearchParams({
-        period: overviewPeriod.value,
-        start_date: summaryDate.value,
-        end_date: summaryDate.value,
-    });
-    window.location.href = `/api/admin/analytics/export/pdf?${params.toString()}`;
-};
-
 const exportUserSummaryCsv = () => {
     if (!selectedUser.value) {
         alert('Please select a user first');
@@ -526,7 +476,6 @@ const exportUserSummaryPdf = () => {
 onMounted(() => {
     const today = new Date();
     summaryDate.value = today.toISOString().split('T')[0];
-    loadOverviewData();
     loadUsers();
     loadActivityLogs();
     fetchSummary();
@@ -535,7 +484,6 @@ onMounted(() => {
 watch(activeTab, (newTab) => {
     if (newTab === 'overview') {
         fetchSummary();
-        loadOverviewData();
     } else if (newTab === 'summary') {
         if (!selectedUser.value && allUsers.value.length > 0) {
             selectedUser.value = allUsers.value[0].id;
@@ -733,166 +681,6 @@ watch(selectedActionFilter, () => {
                                     </dl>
                                 </div>
                             </div>
-                        </div>
-                    </section>
-
-                    <section class="space-y-6">
-                        <div class="bg-white shadow rounded-lg p-4">
-                            <div class="flex justify-between items-end gap-4">
-                                <div class="flex-1">
-                                    <label class="block text-sm font-medium text-gray-700 mb-2">Period</label>
-                                    <select
-                                        v-model="overviewPeriod"
-                                        @change="loadOverviewData"
-                                        class="rounded-md border-gray-300 shadow-sm"
-                                    >
-                                        <option value="daily">Daily</option>
-                                        <option value="weekly">Weekly</option>
-                                        <option value="monthly">Monthly</option>
-                                        <option value="ytd">Year to Date</option>
-                                    </select>
-                                </div>
-                                <div class="flex gap-2">
-                                    <button
-                                        @click="exportCsv"
-                                        class="rounded-md bg-green-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-green-500"
-                                    >
-                                        Export CSV
-                                    </button>
-                                    <button
-                                        @click="exportPdf"
-                                        class="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-red-500"
-                                    >
-                                        Export PDF
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div v-if="overviewData && !overviewLoading" class="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-                            <div class="bg-white overflow-hidden shadow rounded-lg">
-                                <div class="p-5">
-                                    <div class="flex items-center">
-                                        <div class="flex-shrink-0">
-                                            <div class="h-8 w-8 rounded-full bg-blue-500 flex items-center justify-center">
-                                                <svg class="h-5 w-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
-                                                </svg>
-                                            </div>
-                                        </div>
-                                        <div class="ml-5 w-0 flex-1">
-                                            <dl>
-                                                <dt class="text-sm font-medium text-gray-500 truncate">Total Employees</dt>
-                                                <dd class="text-2xl font-semibold text-gray-900">{{ overviewData.statistics.total_employees }}</dd>
-                                            </dl>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="bg-white overflow-hidden shadow rounded-lg">
-                                <div class="p-5">
-                                    <div class="flex items-center">
-                                        <div class="flex-shrink-0">
-                                            <div class="h-8 w-8 rounded-full bg-green-500 flex items-center justify-center">
-                                                <svg class="h-5 w-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                                </svg>
-                                            </div>
-                                        </div>
-                                        <div class="ml-5 w-0 flex-1">
-                                            <dl>
-                                                <dt class="text-sm font-medium text-gray-500 truncate">Total Hours</dt>
-                                                <dd class="text-2xl font-semibold text-gray-900">
-                                                    {{ overviewData.statistics.total_hms || formatHoursToHMS(overviewData.statistics.total_hours) }}
-                                                </dd>
-                                            </dl>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="bg-white overflow-hidden shadow rounded-lg">
-                                <div class="p-5">
-                                    <div class="flex items-center">
-                                        <div class="flex-shrink-0">
-                                            <div class="h-8 w-8 rounded-full bg-yellow-500 flex items-center justify-center">
-                                                <svg class="h-5 w-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                                                </svg>
-                                            </div>
-                                        </div>
-                                        <div class="ml-5 w-0 flex-1">
-                                            <dl>
-                                                <dt class="text-sm font-medium text-gray-500 truncate">Lates</dt>
-                                                <dd class="text-2xl font-semibold text-gray-900">{{ overviewData.statistics.lates_count }}</dd>
-                                            </dl>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="bg-white overflow-hidden shadow rounded-lg">
-                                <div class="p-5">
-                                    <div class="flex items-center">
-                                        <div class="flex-shrink-0">
-                                            <div class="h-8 w-8 rounded-full bg-purple-500 flex items-center justify-center">
-                                                <svg class="h-5 w-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                                </svg>
-                                            </div>
-                                        </div>
-                                        <div class="ml-5 w-0 flex-1">
-                                            <dl>
-                                                <dt class="text-sm font-medium text-gray-500 truncate">Overtime</dt>
-                                                <dd class="text-2xl font-semibold text-gray-900">{{ overviewData.statistics.overtime_count }}</dd>
-                                            </dl>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div v-if="overviewData && !overviewLoading" class="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-                            <div class="bg-white overflow-hidden shadow rounded-lg p-5">
-                                <h4 class="text-sm font-medium text-gray-500 mb-2">Average Hours</h4>
-                                <p class="text-3xl font-semibold text-gray-900">{{ formatHoursToHMS(overviewData.statistics.average_hours) }}</p>
-                            </div>
-                            <div class="bg-white overflow-hidden shadow rounded-lg p-5">
-                                <h4 class="text-sm font-medium text-gray-500 mb-2">Perfect Attendance</h4>
-                                <p class="text-3xl font-semibold text-gray-900">{{ overviewData.statistics.perfect_attendance_count }}</p>
-                            </div>
-                            <div class="bg-white overflow-hidden shadow rounded-lg p-5">
-                                <h4 class="text-sm font-medium text-gray-500 mb-2">Undertime</h4>
-                                <p class="text-3xl font-semibold text-gray-900">{{ overviewData.statistics.undertime_count }}</p>
-                            </div>
-                        </div>
-
-                        <div v-if="overviewData && !overviewLoading" class="bg-white shadow rounded-lg">
-                            <div class="px-4 py-5 sm:p-6">
-                                <h3 class="text-lg font-medium leading-6 text-gray-900 mb-4">Top Employees</h3>
-                                <table class="min-w-full divide-y divide-gray-200">
-                                    <thead class="bg-gray-50">
-                                        <tr>
-                                            <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Name</th>
-                                            <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Total Hours</th>
-                                            <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Entries</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody class="divide-y divide-gray-200">
-                                        <tr v-for="employee in overviewData.top_employees" :key="employee.id">
-                                            <td class="px-4 py-4 text-sm text-gray-900">{{ employee.name }}</td>
-                                            <td class="px-4 py-4 text-sm text-gray-500">{{ formatHoursToHMS(employee.total_hours) }}</td>
-                                            <td class="px-4 py-4 text-sm text-gray-500">{{ employee.entries_count }}</td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                            </div>
-                        </div>
-
-                        <div v-if="overviewLoading" class="text-center py-12">
-                            <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
-                            <p class="mt-2 text-sm text-gray-500">Loading…</p>
                         </div>
                     </section>
                 </div>
