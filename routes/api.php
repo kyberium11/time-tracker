@@ -53,6 +53,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
     // Analytics read routes (admin and manager can access)
     Route::prefix('admin/analytics')->middleware(['role:admin,manager'])->group(function () {
+        Route::get('/summary', [AnalyticsController::class, 'summary']);
         Route::get('/overview', [AnalyticsController::class, 'overview']);
         Route::get('/individual-entries', [AnalyticsController::class, 'individualEntries']);
         Route::get('/users', [AnalyticsController::class, 'users']);

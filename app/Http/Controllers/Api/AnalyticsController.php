@@ -176,6 +176,176 @@ class AnalyticsController extends Controller
     }
 
     /**
+     * Simple health summary for super admins.
+     */
+    public function summary(): \Illuminate\Http\JsonResponse
+    {
+        $user = Auth::user()->load('managedTeam');
+
+        if (!in_array($user->role, ['admin', 'developer', 'manager'], true)) {
+            return response()->json(['error' => 'Forbidden'], 403);
+        }
+
+        $today = now()->startOfDay();
+        $endOfToday = $today->copy()->endOfDay();
+        $startOfWeek = now()->copy()->startOfWeek();
+        $endOfWeek = now()->copy()->endOfWeek();
+
+        $scopedUserIds = $this->resolveScopedUserIds($user);
+        if ($scopedUserIds !== null && count($scopedUserIds) === 0) {
+            return response()->json([
+                'generated_at' => now()->toIso8601String(),
+                'dates' => [
+                    'today' => $today->toDateString(),
+                    'week_start' => $startOfWeek->toDateString(),
+                    'week_end' => $endOfWeek->toDateString(),
+                ],
+                'totals' => [
+                    'hours_today' => 0,
+                    'hours_week' => 0,
+                    'active_users_today' => 0,
+                    'active_users_week' => 0,
+                    'average_hours_per_user_week' => 0,
+                    'open_entries' => 0,
+                    'late_clock_ins_today' => 0,
+                    'total_entries_today' => 0,
+                ],
+                'open_entries' => [],
+            ]);
+        }
+
+        $hoursToday = $this->sumHours(
+            $this->scopedEntriesBuilder($user, $scopedUserIds)
+                ->whereBetween('date', [$today->toDateString(), $today->toDateString()])
+                ->whereNotNull('clock_out')
+        );
+
+        $hoursWeek = $this->sumHours(
+            $this->scopedEntriesBuilder($user, $scopedUserIds)
+                ->whereBetween('date', [$startOfWeek->toDateString(), $endOfWeek->toDateString()])
+                ->whereNotNull('clock_out')
+        );
+
+        $activeUsersToday = $this->scopedEntriesBuilder($user, $scopedUserIds)
+            ->whereBetween('date', [$today->toDateString(), $today->toDateString()])
+            ->whereNotNull('clock_in')
+            ->distinct('user_id')
+            ->count('user_id');
+
+        $activeUsersWeek = $this->scopedEntriesBuilder($user, $scopedUserIds)
+            ->whereBetween('date', [$startOfWeek->toDateString(), $endOfWeek->toDateString()])
+            ->whereNotNull('clock_in')
+            ->distinct('user_id')
+            ->count('user_id');
+
+        $totalEntriesToday = $this->scopedEntriesBuilder($user, $scopedUserIds)
+            ->whereBetween('date', [$today->toDateString(), $today->toDateString()])
+            ->whereNotNull('clock_out')
+            ->count();
+
+        $openEntriesQuery = $this->scopedEntriesBuilder($user, $scopedUserIds)
+            ->with(['user:id,name,email,team_id', 'user.team:id,name'])
+            ->whereNull('clock_out')
+            ->whereNotNull('clock_in')
+            ->orderByDesc('clock_in');
+
+        $openEntriesCount = (clone $openEntriesQuery)->count();
+
+        $openEntries = (clone $openEntriesQuery)
+            ->limit(10)
+            ->get()
+            ->map(function (TimeEntry $entry) {
+                $clockIn = $entry->clock_in ? \Carbon\Carbon::parse($entry->clock_in) : null;
+                $minutes = $clockIn ? max(0, $clockIn->diffInMinutes(now())) : null;
+
+                return [
+                    'entry_id' => $entry->id,
+                    'user' => [
+                        'id' => $entry->user?->id,
+                        'name' => $entry->user?->name,
+                        'email' => $entry->user?->email,
+                        'team' => $entry->user?->team?->name,
+                    ],
+                    'clock_in' => $entry->clock_in ? \Carbon\Carbon::parse($entry->clock_in)->toIso8601String() : null,
+                    'minutes_running' => $minutes,
+                ];
+            })
+            ->values()
+            ->all();
+
+        $lateClockInsToday = $this->scopedEntriesBuilder($user, $scopedUserIds)
+            ->whereBetween('date', [$today->toDateString(), $today->toDateString()])
+            ->where('entry_type', 'work')
+            ->whereNotNull('clock_in')
+            ->whereTime('clock_in', '>', '09:00:00')
+            ->count();
+
+        $averageHoursPerUserWeek = $activeUsersWeek > 0
+            ? round($hoursWeek / $activeUsersWeek, 2)
+            : 0.0;
+
+        return response()->json([
+            'generated_at' => now()->toIso8601String(),
+            'dates' => [
+                'today' => $today->toDateString(),
+                'week_start' => $startOfWeek->toDateString(),
+                'week_end' => $endOfWeek->toDateString(),
+            ],
+            'totals' => [
+                'hours_today' => round($hoursToday, 2),
+                'hours_week' => round($hoursWeek, 2),
+                'active_users_today' => $activeUsersToday,
+                'active_users_week' => $activeUsersWeek,
+                'average_hours_per_user_week' => $averageHoursPerUserWeek,
+                'open_entries' => $openEntriesCount,
+                'late_clock_ins_today' => $lateClockInsToday,
+                'total_entries_today' => $totalEntriesToday,
+            ],
+            'open_entries' => $openEntries,
+        ]);
+    }
+
+    private function scopedEntriesBuilder(User $user, ?array $scopedUserIds = null)
+    {
+        $builder = TimeEntry::query();
+
+        if ($scopedUserIds === null) {
+            return $builder;
+        }
+
+        return $builder->whereIn('user_id', $scopedUserIds);
+    }
+
+    private function resolveScopedUserIds(User $user): ?array
+    {
+        if (in_array($user->role, ['admin', 'developer'], true)) {
+            return null;
+        }
+
+        if ($user->role === 'manager') {
+            if (!$user->relationLoaded('managedTeam')) {
+                $user->load('managedTeam');
+            }
+
+            if (!$user->managedTeam) {
+                return [];
+            }
+
+            return User::where('team_id', $user->managedTeam->id)
+                ->pluck('id')
+                ->all();
+        }
+
+        return [$user->id];
+    }
+
+    private function sumHours($builder): float
+    {
+        return (float) $builder->sum(DB::raw('COALESCE(total_hours, 0)'));
+    }
+
+
+    /**
      * Get analytics data.
      */
     public function index(Request $request)
