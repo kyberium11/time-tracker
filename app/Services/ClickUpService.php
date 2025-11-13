@@ -415,19 +415,34 @@ class ClickUpService
      */
     public function listTeamTasksByAssignee(string $teamId, ?string $assigneeId = null, ?string $assigneeEmail = null, array $extraQuery = []): array
     {
+        return $this->listTasksByScope('team/' . $teamId, $assigneeId, $assigneeEmail, $extraQuery);
+    }
+
+    /**
+     * List tasks within a specific ClickUp space filtered by assignee id/email.
+     * Some workspaces restrict team-level searches across multiple spaces, so we
+     * provide a dedicated wrapper to iterate through space-scoped task API.
+     */
+    public function listSpaceTasksByAssignee(string $spaceId, ?string $assigneeId = null, ?string $assigneeEmail = null, array $extraQuery = []): array
+    {
+        return $this->listTasksByScope('space/' . $spaceId, $assigneeId, $assigneeEmail, $extraQuery);
+    }
+
+    /**
+     * Shared task listing helper used by team/space scoped queries.
+     */
+    private function listTasksByScope(string $scopePath, ?string $assigneeId, ?string $assigneeEmail, array $extraQuery = []): array
+    {
         $headers = [
             'Authorization' => (string) $this->apiToken,
             'Accept' => 'application/json',
         ];
 
-        // ClickUp supports assignees[] and assignees[] emails as filters on team task search
-        // We'll prioritize numeric id when provided.
         $query = array_merge([
             'include_closed' => 'true',
             'subtasks' => 'true',
             'order_by' => 'updated',
             'reverse' => 'true',
-            // Conservative page size to avoid timeouts; can be tuned
             'page' => 0,
         ], $extraQuery);
 
@@ -437,9 +452,8 @@ class ClickUpService
             $query['assignees[]'] = $assigneeEmail;
         }
 
-        $url = 'https://api.clickup.com/api/v2/team/' . $teamId . '/task';
+        $url = 'https://api.clickup.com/api/v2/' . trim($scopePath, '/') . '/task';
 
-        // Paginate through all pages to fetch more than 100 tasks and include subtasks
         $baseQuery = $query;
         $baseQuery['limit'] = $baseQuery['limit'] ?? 100;
 
@@ -453,22 +467,22 @@ class ClickUpService
                 $pageQuery = $baseQuery;
                 $pageQuery['page'] = $page;
 
-            $response = Http::withHeaders($headers)
+                $response = Http::withHeaders($headers)
                     ->timeout(12)
                     ->get($url, $pageQuery);
 
-            if ($response->failed()) {
-                Log::warning('ClickUp list tasks by assignee failed', [
-                    'teamId' => $teamId,
-                    'status' => $response->status(),
-                    'body' => $response->body(),
+                if ($response->failed()) {
+                    Log::warning('ClickUp list tasks failed', [
+                        'scope' => $scopePath,
+                        'status' => $response->status(),
+                        'body' => $response->body(),
                         'query' => $pageQuery,
                         'page' => $page,
-                ]);
+                    ]);
                     break;
-            }
+                }
 
-            $data = $response->json();
+                $data = $response->json();
                 $tasks = is_array($data) ? ($data['tasks'] ?? []) : [];
 
                 $flat = $this->flattenTasksWithSubtasks($tasks);
@@ -487,8 +501,8 @@ class ClickUpService
                 $page++;
             }
         } catch (\Throwable $e) {
-            Log::warning('ClickUp list tasks by assignee exception', [
-                'teamId' => $teamId,
+            Log::warning('ClickUp list tasks exception', [
+                'scope' => $scopePath,
                 'message' => $e->getMessage(),
                 'page' => $page,
             ]);

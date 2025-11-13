@@ -129,17 +129,29 @@ class TaskController extends Controller
             $extraQuery['space_ids'] = implode(',', $spaceIds);
         }
 
-        // Fetch tasks across all configured teams and merge/deduplicate (optionally filtered by spaces)
+        // Fetch tasks across all configured teams and spaces, merge/deduplicate.
         $allTasks = [];
         $seen = [];
-        foreach ($teamIds as $teamId) {
-            $tasksChunk = $clickUp->listTeamTasksByAssignee((string) $teamId, $assigneeId, $assigneeEmail, $extraQuery);
+
+        $collectTasks = function (array $tasksChunk) use (&$allTasks, &$seen) {
             foreach ($tasksChunk as $t) {
                 $tid = (string) (data_get($t, 'id') ?? '');
                 if ($tid !== '' && !isset($seen[$tid])) {
                     $seen[$tid] = true;
                     $allTasks[] = $t;
                 }
+            }
+        };
+
+        foreach ($teamIds as $teamId) {
+            $tasksChunk = $clickUp->listTeamTasksByAssignee((string) $teamId, $assigneeId, $assigneeEmail, $extraQuery);
+            $collectTasks($tasksChunk);
+        }
+
+        if (count($spaceIds) > 0) {
+            foreach ($spaceIds as $spaceId) {
+                $tasksChunk = $clickUp->listSpaceTasksByAssignee((string) $spaceId, $assigneeId, $assigneeEmail);
+                $collectTasks($tasksChunk);
             }
         }
         $tasks = $allTasks;
