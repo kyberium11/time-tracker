@@ -175,6 +175,198 @@ class AnalyticsController extends Controller
         }
     }
 
+    public function workHourGaps(Request $request): \Illuminate\Http\JsonResponse
+    {
+        $user = Auth::user()->load('managedTeam');
+        if (!in_array($user->role, ['admin', 'developer', 'manager'], true)) {
+            return response()->json(['data' => []], 403);
+        }
+
+        $scopedUserIds = $this->resolveScopedUserIds($user);
+        if ($scopedUserIds !== null && count($scopedUserIds) === 0) {
+            return response()->json(['data' => []]);
+        }
+
+        $startDateInput = $request->input('start_date', now()->copy()->subDays(30)->toDateString());
+        $endDateInput = $request->input('end_date', now()->toDateString());
+        $startDate = \Carbon\Carbon::parse($startDateInput)->startOfDay();
+        $endDate = \Carbon\Carbon::parse($endDateInput)->endOfDay();
+
+        $builder = TimeEntry::query()
+            ->with(['user:id,name'])
+            ->whereBetween('date', [$startDate->toDateString(), $endDate->toDateString()])
+            ->whereNotNull('clock_in');
+
+        if ($scopedUserIds !== null) {
+            $builder->whereIn('user_id', $scopedUserIds);
+        }
+
+        if ($request->filled('user_id')) {
+            $builder->where('user_id', $request->integer('user_id'));
+        }
+
+        $rows = $builder
+            ->selectRaw("
+                user_id,
+                date,
+                SUM(CASE WHEN task_id IS NULL THEN COALESCE(total_hours, 0) ELSE 0 END) AS worked_hours,
+                SUM(CASE WHEN task_id IS NOT NULL THEN COALESCE(total_hours, 0) ELSE 0 END) AS task_hours
+            ")
+            ->groupBy('user_id', 'date')
+            ->orderBy('date', 'desc')
+            ->get();
+
+        $data = $rows->map(function (TimeEntry $entry) {
+            return [
+                'user' => $entry->user?->name ?? 'Unknown',
+                'date' => $entry->date,
+                'worked_hours' => round((float) ($entry->worked_hours ?? 0), 2),
+                'task_hours' => round((float) ($entry->task_hours ?? 0), 2),
+            ];
+        });
+
+        return response()->json(['data' => $data]);
+    }
+
+    public function utilizationSummary(Request $request): \Illuminate\Http\JsonResponse
+    {
+        $user = Auth::user()->load('managedTeam');
+        if (!in_array($user->role, ['admin', 'developer', 'manager'], true)) {
+            return response()->json(['data' => []], 403);
+        }
+
+        $scopedUserIds = $this->resolveScopedUserIds($user);
+        if ($scopedUserIds !== null && count($scopedUserIds) === 0) {
+            return response()->json(['data' => []]);
+        }
+
+        $startDateInput = $request->input('start_date', now()->copy()->subDays(30)->toDateString());
+        $endDateInput = $request->input('end_date', now()->toDateString());
+        $startDate = \Carbon\Carbon::parse($startDateInput)->startOfDay();
+        $endDate = \Carbon\Carbon::parse($endDateInput)->endOfDay();
+
+        $builder = TimeEntry::query()
+            ->with(['user:id,name'])
+            ->whereBetween('date', [$startDate->toDateString(), $endDate->toDateString()])
+            ->whereNotNull('clock_in');
+
+        if ($scopedUserIds !== null) {
+            $builder->whereIn('user_id', $scopedUserIds);
+        }
+
+        if ($request->filled('user_id')) {
+            $builder->where('user_id', $request->integer('user_id'));
+        }
+
+        $rows = $builder
+            ->selectRaw("
+                user_id,
+                SUM(CASE WHEN task_id IS NULL THEN COALESCE(total_hours, 0) ELSE 0 END) AS worked_hours,
+                SUM(CASE WHEN task_id IS NOT NULL THEN COALESCE(total_hours, 0) ELSE 0 END) AS task_hours
+            ")
+            ->groupBy('user_id')
+            ->orderBy('user_id')
+            ->get();
+
+        $data = $rows->map(function (TimeEntry $entry) {
+            $worked = (float) ($entry->worked_hours ?? 0);
+            $task = (float) ($entry->task_hours ?? 0);
+            $percent = $worked > 0 ? round(($task / $worked) * 100, 2) : 0.0;
+
+            return [
+                'user' => $entry->user?->name ?? 'Unknown',
+                'worked_hours' => round($worked, 2),
+                'task_hours' => round($task, 2),
+                'percent' => $percent,
+            ];
+        });
+
+        return response()->json(['data' => $data]);
+    }
+
+    public function attendanceOverview(Request $request): \Illuminate\Http\JsonResponse
+    {
+        $authUser = Auth::user()->load('managedTeam');
+        if (!in_array($authUser->role, ['admin', 'developer', 'manager'], true)) {
+            return response()->json(['data' => []], 403);
+        }
+
+        $scopedUserIds = $this->resolveScopedUserIds($authUser);
+        if ($scopedUserIds !== null && count($scopedUserIds) === 0) {
+            return response()->json(['data' => []]);
+        }
+
+        $startDateInput = $request->input('start_date', now()->copy()->subDays(30)->toDateString());
+        $endDateInput = $request->input('end_date', now()->toDateString());
+        $startDate = \Carbon\Carbon::parse($startDateInput)->startOfDay();
+        $endDate = \Carbon\Carbon::parse($endDateInput)->endOfDay();
+
+        $usersQuery = User::query()->select(['id', 'name'])->whereIn('role', ['employee', 'manager', 'developer']);
+
+        if ($scopedUserIds !== null) {
+            $usersQuery->whereIn('id', $scopedUserIds);
+        }
+
+        if ($request->filled('user_id')) {
+            $usersQuery->where('id', $request->integer('user_id'));
+        }
+
+        $users = $usersQuery->get();
+        if ($users->isEmpty()) {
+            return response()->json(['data' => []]);
+        }
+
+        $userIds = $users->pluck('id')->all();
+
+        $entries = TimeEntry::query()
+            ->whereIn('user_id', $userIds)
+            ->whereBetween('date', [$startDate->toDateString(), $endDate->toDateString()])
+            ->whereNotNull('clock_in')
+            ->where(function ($query) {
+                $query->whereNull('entry_type')->orWhere('entry_type', 'work');
+            })
+            ->get()
+            ->groupBy(['user_id', 'date']);
+
+        $totalDays = $startDate->diffInDays($endDate) + 1;
+
+        $data = $users->map(function (User $user) use ($entries, $totalDays) {
+            $userEntries = $entries->get($user->id, collect());
+            $perfect = 0;
+            $late = 0;
+            $daysWithEntries = 0;
+
+            foreach ($userEntries as $date => $dayEntries) {
+                $daysWithEntries++;
+                $earliest = $dayEntries->min('clock_in');
+                $totalHours = $dayEntries->sum(function ($entry) {
+                    return (float) ($entry->total_hours ?? 0);
+                });
+
+                if ($earliest) {
+                    $clockIn = \Carbon\Carbon::parse($earliest);
+                    $shiftStart = \Carbon\Carbon::parse($date . ' 09:00:00');
+                    if ($clockIn->lte($shiftStart) && $totalHours >= 7.5) {
+                        $perfect++;
+                    } elseif ($clockIn->gt($shiftStart)) {
+                        $late++;
+                    }
+                }
+            }
+
+            $absence = max(0, $totalDays - $daysWithEntries);
+
+            return [
+                'user' => $user->name,
+                'perfect_days' => $perfect,
+                'late_days' => $late,
+                'absence_days' => $absence,
+            ];
+        });
+
+        return response()->json(['data' => $data]);
+    }
+
     /**
      * Simple health summary for super admins.
      */

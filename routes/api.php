@@ -60,6 +60,9 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/user/{user}', [AnalyticsController::class, 'userAnalytics']);
         Route::get('/activity-logs', [AnalyticsController::class, 'activityLogs']);
         Route::get('/efficiency', [AnalyticsController::class, 'efficiency']);
+        Route::get('/utilization/gaps', [AnalyticsController::class, 'workHourGaps']);
+        Route::get('/utilization/summary', [AnalyticsController::class, 'utilizationSummary']);
+        Route::get('/attendance/overview', [AnalyticsController::class, 'attendanceOverview']);
     });
 
     // Admin-only routes (user and team management)
