@@ -478,60 +478,102 @@ const loadTodayEntries = async () => {
         let workSeconds = 0;
         let totalBreakSeconds = 0;
 
+        const now = new Date();
         list.forEach((e: any) => {
-            // Break entries
-            if (e.is_break || e.entry_type === 'break') {
-                const cin = parseDateTime(e.clock_in);
-                const cout = parseDateTime(e.clock_out);
-                if (cin && cout) {
-                    const dur = Math.max(0, Math.floor((cout.getTime() - cin.getTime()) / 1000));
-                    totalBreakSeconds += dur;
-                    rows.push({
-                        name: 'Break',
-                        start: e.clock_in_formatted || e.clock_in,
-                        end: e.clock_out_formatted || e.clock_out,
-                        durationSeconds: dur,
-                        breakDurationSeconds: dur,
-                        notes: '-'
-                    });
-                }
-                return;
-            }
+            const startStr = e.clock_in_formatted || e.clock_in;
+            const endStr = e.clock_out_formatted || e.clock_out;
             const cin = parseDateTime(e.clock_in);
             const cout = parseDateTime(e.clock_out);
+
+            // Break entries
+            if (e.is_break || e.entry_type === 'break') {
+                if (!cin) {
+                    return;
+                }
+
+                const isClosed = Boolean(cout);
+                let durationSeconds = 0;
+                if (isClosed && cout) {
+                    durationSeconds = Math.max(0, Math.floor((cout.getTime() - cin.getTime()) / 1000));
+                    totalBreakSeconds += durationSeconds;
+                } else {
+                    durationSeconds = Math.max(0, Math.floor((now.getTime() - cin.getTime()) / 1000));
+                }
+                rows.push({
+                    name: 'Break',
+                    start: startStr,
+                    end: isClosed ? endStr : null,
+                    durationSeconds,
+                    breakDurationSeconds: durationSeconds,
+                    notes: isClosed ? '-' : 'In progress'
+                });
+                return;
+            }
+
+            if (!cin) {
+                return;
+            }
+
             const hasTask = e.task && (e.task.title || e.task.name);
+            const isClosed = Boolean(cout);
 
             // Work hours (no task)
-            if (cin && cout && !hasTask) {
-                const workDur = Math.max(0, Math.floor((cout.getTime() - cin.getTime()) / 1000));
-                // subtract lunch if present
-                const ls = parseDateTime(e.lunch_start);
-                const le = parseDateTime(e.lunch_end);
-                let lunchDur = 0;
-                if (ls && le) lunchDur = Math.max(0, Math.floor((le.getTime() - ls.getTime()) / 1000));
-                const net = Math.max(0, workDur - lunchDur);
-                workSeconds += net;
-                rows.push({
-                    name: 'Work Hours',
-                    start: e.clock_in_formatted || e.clock_in,
-                    end: e.clock_out_formatted || e.clock_out,
-                    durationSeconds: net,
-                    breakDurationSeconds: 0,
-                    notes: '-'
-                });
+            if (!hasTask) {
+                if (isClosed && cout) {
+                    const workDur = Math.max(0, Math.floor((cout.getTime() - cin.getTime()) / 1000));
+                    // subtract lunch if present
+                    const ls = parseDateTime(e.lunch_start);
+                    const le = parseDateTime(e.lunch_end);
+                    let lunchDur = 0;
+                    if (ls && le) {
+                        lunchDur = Math.max(0, Math.floor((le.getTime() - ls.getTime()) / 1000));
+                    }
+                    const net = Math.max(0, workDur - lunchDur);
+                    workSeconds += net;
+                    rows.push({
+                        name: 'Work Hours',
+                        start: startStr,
+                        end: endStr,
+                        durationSeconds: net,
+                        breakDurationSeconds: 0,
+                        notes: '-'
+                    });
+                } else {
+                    const runningSeconds = Math.max(0, Math.floor((now.getTime() - cin.getTime()) / 1000));
+                    rows.push({
+                        name: 'Work Hours',
+                        start: startStr,
+                        end: null,
+                        durationSeconds: runningSeconds,
+                        breakDurationSeconds: 0,
+                        notes: 'In progress'
+                    });
+                }
             }
 
             // Task entries
-            if (hasTask && cin && cout) {
-                const taskDur = Math.max(0, Math.floor((cout.getTime() - cin.getTime()) / 1000));
-                rows.push({
-                    name: e.task.title || e.task.name,
-                    start: e.clock_in_formatted || e.clock_in,
-                    end: e.clock_out_formatted || e.clock_out,
-                    durationSeconds: taskDur,
-                    breakDurationSeconds: 0,
-                    notes: '-'
-                });
+            if (hasTask) {
+                if (isClosed && cout) {
+                    const taskDur = Math.max(0, Math.floor((cout.getTime() - cin.getTime()) / 1000));
+                    rows.push({
+                        name: e.task.title || e.task.name,
+                        start: startStr,
+                        end: endStr,
+                        durationSeconds: taskDur,
+                        breakDurationSeconds: 0,
+                        notes: '-'
+                    });
+                } else {
+                    const runningSeconds = Math.max(0, Math.floor((now.getTime() - cin.getTime()) / 1000));
+                    rows.push({
+                        name: e.task.title || e.task.name,
+                        start: startStr,
+                        end: null,
+                        durationSeconds: runningSeconds,
+                        breakDurationSeconds: 0,
+                        notes: 'In progress'
+                    });
+                }
             }
         });
 
@@ -746,73 +788,111 @@ const loadTimeEntries = async () => {
         let firstIn: Date | null = null;
         let firstInStr: string | null = null;
         
+        const now = new Date();
         list.forEach((e: any) => {
+            const startStr = e.clock_in_formatted || e.clock_in;
+            const endStr = e.clock_out_formatted || e.clock_out;
+            const cin = parseDateTime(e.clock_in);
+            const cout = parseDateTime(e.clock_out);
+
+            if (cin && (!firstIn || cin < firstIn)) { 
+                firstIn = cin; 
+                firstInStr = startStr; 
+            }
+
             // Handle break entries separately
             if (e.is_break || e.entry_type === 'break') {
-                const cin = parseDateTime(e.clock_in);
-                const cout = parseDateTime(e.clock_out);
-                if (cin && cout) {
-                    const breakDur = Math.max(0, Math.floor((cout.getTime() - cin.getTime()) / 1000));
-                    totalBreakSeconds += breakDur;
-                    timeEntriesRows.value.push({
-                        name: 'Break',
-                        start: e.clock_in_formatted || e.clock_in,
-                        end: e.clock_out_formatted || e.clock_out,
-                        durationSeconds: breakDur,
-                        breakDurationSeconds: breakDur,
-                        notes: '-'
-                    });
+                if (!cin) {
+                    return;
                 }
+
+                const isClosed = Boolean(cout);
+                let breakDur = 0;
+                if (isClosed && cout) {
+                    breakDur = Math.max(0, Math.floor((cout.getTime() - cin.getTime()) / 1000));
+                    totalBreakSeconds += breakDur;
+                } else {
+                    breakDur = Math.max(0, Math.floor((now.getTime() - cin.getTime()) / 1000));
+                }
+
+                timeEntriesRows.value.push({
+                    name: 'Break',
+                    start: startStr,
+                    end: isClosed ? endStr : null,
+                    durationSeconds: breakDur,
+                    breakDurationSeconds: breakDur,
+                    notes: isClosed ? '-' : 'In progress'
+                });
                 return; // Skip processing as work entry
             }
             
             // This is a work entry
-            const cin = parseDateTime(e.clock_in);
-            const cout = parseDateTime(e.clock_out);
-            if (cin && (!firstIn || cin < firstIn)) { 
-                firstIn = cin; 
-                firstInStr = e.clock_in_formatted || e.clock_in; 
+            if (!cin) {
+                return;
             }
             
             const hasTask = e.task && (e.task.title || e.task.name);
+            const isClosed = Boolean(cout);
             
             // Work Hours entry (no task)
-            if (cin && cout && !hasTask) {
-                const workDur = Math.max(0, Math.floor((cout.getTime() - cin.getTime()) / 1000));
-                rawWorkSeconds += workDur;
-                
-                // Subtract lunch if present
-                const ls = parseDateTime(e.lunch_start);
-                const le = parseDateTime(e.lunch_end);
-                let lunchDur = 0;
-                if (ls && le) {
-                    lunchDur = Math.max(0, Math.floor((le.getTime() - ls.getTime()) / 1000));
+            if (!hasTask) {
+                if (isClosed && cout) {
+                    const workDur = Math.max(0, Math.floor((cout.getTime() - cin.getTime()) / 1000));
+                    rawWorkSeconds += workDur;
+                    
+                    // Subtract lunch if present
+                    const ls = parseDateTime(e.lunch_start);
+                    const le = parseDateTime(e.lunch_end);
+                    let lunchDur = 0;
+                    if (ls && le) {
+                        lunchDur = Math.max(0, Math.floor((le.getTime() - ls.getTime()) / 1000));
+                    }
+                    
+                    const netWorkDur = Math.max(0, workDur - lunchDur);
+                    
+                    timeEntriesRows.value.push({
+                        name: 'Work Hours',
+                        start: startStr,
+                        end: endStr,
+                        durationSeconds: netWorkDur,
+                        breakDurationSeconds: 0, // Breaks are now separate entries
+                        notes: '-'
+                    });
+                } else {
+                    const runningSeconds = Math.max(0, Math.floor((now.getTime() - cin.getTime()) / 1000));
+                    timeEntriesRows.value.push({
+                        name: 'Work Hours',
+                        start: startStr,
+                        end: null,
+                        durationSeconds: runningSeconds,
+                        breakDurationSeconds: 0,
+                        notes: 'In progress'
+                    });
                 }
-                
-                const netWorkDur = Math.max(0, workDur - lunchDur);
-                
-                timeEntriesRows.value.push({
-                    name: 'Work Hours',
-                    start: e.clock_in_formatted || e.clock_in,
-                    end: e.clock_out_formatted || e.clock_out,
-                    durationSeconds: netWorkDur,
-                    breakDurationSeconds: 0, // Breaks are now separate entries
-                    notes: '-'
-                });
             }
             
             // Task entry
             if (hasTask) {
                 const taskName = e.task.title || e.task.name;
-                if (cin && cout) {
+                if (isClosed && cout) {
                     const taskDur = Math.max(0, Math.floor((cout.getTime() - cin.getTime()) / 1000));
                     timeEntriesRows.value.push({
                         name: taskName,
-                        start: e.clock_in_formatted || e.clock_in,
-                        end: e.clock_out_formatted || e.clock_out,
+                        start: startStr,
+                        end: endStr,
                         durationSeconds: taskDur,
                         breakDurationSeconds: 0,
                         notes: '-'
+                    });
+                } else {
+                    const runningSeconds = Math.max(0, Math.floor((now.getTime() - cin.getTime()) / 1000));
+                    timeEntriesRows.value.push({
+                        name: taskName,
+                        start: startStr,
+                        end: null,
+                        durationSeconds: runningSeconds,
+                        breakDurationSeconds: 0,
+                        notes: 'In progress'
                     });
                 }
             }

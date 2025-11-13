@@ -226,7 +226,6 @@ class AnalyticsController extends Controller
             ->whereBetween('date', [$startDate, $endDate])
             ->where('entry_type', 'work')
             ->whereNotNull('clock_in')
-            ->whereNotNull('clock_out')
             ->orderBy('date', 'desc')
             ->orderBy('clock_in', 'asc')
             ->get();
@@ -236,7 +235,6 @@ class AnalyticsController extends Controller
             ->whereBetween('date', [$startDate, $endDate])
             ->where('entry_type', 'break')
             ->whereNotNull('clock_in')
-            ->whereNotNull('clock_out')
             ->orderBy('date', 'desc')
             ->orderBy('clock_in', 'asc')
             ->get();
@@ -417,7 +415,6 @@ class AnalyticsController extends Controller
             ->whereBetween('date', [$startDate, $endDate])
             ->where('entry_type', 'work')
             ->whereNotNull('clock_in')
-            ->whereNotNull('clock_out')
             ->orderBy('date', 'desc')
             ->orderBy('clock_in', 'asc')
             ->get();
@@ -427,7 +424,6 @@ class AnalyticsController extends Controller
             ->whereBetween('date', [$startDate, $endDate])
             ->where('entry_type', 'break')
             ->whereNotNull('clock_in')
-            ->whereNotNull('clock_out')
             ->orderBy('date', 'desc')
             ->orderBy('clock_in', 'asc')
             ->get();
