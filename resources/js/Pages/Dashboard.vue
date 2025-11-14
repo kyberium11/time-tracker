@@ -248,6 +248,17 @@ const todayTimeEntries = computed(() => {
     return rows;
 });
 
+// Prevent closing/refreshing if clocked in
+const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+    // Check if user is clocked in (has clock_in but no clock_out)
+    if (isClockedIn.value) {
+        // Modern browsers require returnValue to be set
+        e.preventDefault();
+        e.returnValue = ''; // Chrome requires returnValue to be set
+        return ''; // For older browsers
+    }
+};
+
 onMounted(() => {
     const today = new Date();
     timeEntriesDate.value = today.toISOString().split('T')[0];
@@ -262,12 +273,17 @@ onMounted(() => {
     timeInterval = window.setInterval(() => {
         currentTime.value = new Date();
     }, 1000);
+    
+    // Add beforeunload event listener to prevent closing if clocked in
+    window.addEventListener('beforeunload', handleBeforeUnload);
 });
 
 onUnmounted(() => {
     if (timeInterval) {
         window.clearInterval(timeInterval);
     }
+    // Remove beforeunload event listener
+    window.removeEventListener('beforeunload', handleBeforeUnload);
 });
 
 const fetchCurrentEntry = async () => {
