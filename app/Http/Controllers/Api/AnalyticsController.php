@@ -1593,6 +1593,24 @@ class AnalyticsController extends Controller
                 $tasksQuery->where('user_id', $userId);
             }
             
+            // Only include tasks that have time entries within the date range (if dates provided)
+            if ($startDate || $endDate) {
+                $tasksQuery->whereHas('timeEntries', function ($query) use ($startDate, $endDate) {
+                    $query->whereNotNull('clock_out');
+                    if ($startDate) {
+                        $query->whereDate('date', '>=', $startDate);
+                    }
+                    if ($endDate) {
+                        $query->whereDate('date', '<=', $endDate);
+                    }
+                });
+            } else {
+                // If no date filter, only include tasks with at least one completed time entry
+                $tasksQuery->whereHas('timeEntries', function ($query) {
+                    $query->whereNotNull('clock_out');
+                });
+            }
+            
             // Filter time entries by date range if provided
             $timeEntriesQuery = function ($query) use ($startDate, $endDate) {
                 $query->whereNotNull('clock_out');
@@ -1666,6 +1684,11 @@ class AnalyticsController extends Controller
             foreach ($tasks as $task) {
                 if (!$task->user) continue;
                 
+                $trackedHours = $task->timeEntries->sum('total_hours') ?? 0;
+                
+                // Only include tasks with tracked time in the date range
+                if ($trackedHours <= 0) continue;
+                
                 $userId = $task->user->id;
                 $userName = $task->user->name;
                 
@@ -1678,7 +1701,6 @@ class AnalyticsController extends Controller
                 }
                 
                 $estimatedHours = $task->estimated_time / (1000 * 60 * 60);
-                $trackedHours = $task->timeEntries->sum('total_hours') ?? 0;
                 
                 $userData[$userId]['estimated'] += $estimatedHours;
                 $userData[$userId]['tracked'] += $trackedHours;
@@ -1698,61 +1720,115 @@ class AnalyticsController extends Controller
             });
 
             // Prepare trend data (average efficiency over time)
-            // Group by week for the last 12 weeks
+            // Use the filtered date range if provided, otherwise use last 12 weeks
             $trendData = [];
-            $weeks = [];
-            for ($i = 11; $i >= 0; $i--) {
-                $weekStart = now()->subWeeks($i)->startOfWeek();
-                $weekEnd = $weekStart->copy()->endOfWeek();
-                $weeks[] = [
-                    'start' => $weekStart,
-                    'end' => $weekEnd,
-                    'label' => $weekStart->format('M d'),
-                ];
-            }
-
-            foreach ($weeks as $week) {
-                $weekTasksQuery = Task::whereNotNull('estimated_time');
+            
+            if ($startDate && $endDate) {
+                // Use the provided date range and group by week
+                $start = \Carbon\Carbon::parse($startDate)->startOfWeek();
+                $end = \Carbon\Carbon::parse($endDate)->endOfWeek();
                 
-                // Apply user filter if provided
-                if ($userId) {
-                    $weekTasksQuery->where('user_id', $userId);
-                }
-                
-                $weekTasks = $weekTasksQuery
-                    ->whereHas('timeEntries', function ($query) use ($week) {
-                        $query->whereNotNull('clock_out')
-                            ->whereBetween('date', [$week['start']->toDateString(), $week['end']->toDateString()]);
-                    })
-                    ->with(['timeEntries' => function ($query) use ($week) {
-                        $query->whereNotNull('clock_out')
-                            ->whereBetween('date', [$week['start']->toDateString(), $week['end']->toDateString()]);
-                    }])
-                    ->get();
-
-                $weekEstimated = 0;
-                $weekTracked = 0;
-                $weekValidCount = 0;
-
-                foreach ($weekTasks as $task) {
-                    $estimatedHours = $task->estimated_time / (1000 * 60 * 60);
-                    $trackedHours = $task->timeEntries->sum('total_hours') ?? 0;
+                $current = $start->copy();
+                while ($current <= $end) {
+                    $weekStart = $current->copy()->startOfWeek();
+                    $weekEnd = $current->copy()->endOfWeek();
                     
-                    if ($trackedHours > 0) {
-                        $weekEstimated += $estimatedHours;
-                        $weekTracked += $trackedHours;
-                        $weekValidCount++;
+                    // Don't go beyond the end date
+                    if ($weekStart > $end) break;
+                    if ($weekEnd > $end) $weekEnd = \Carbon\Carbon::parse($endDate);
+                    
+                    $weekTasksQuery = Task::whereNotNull('estimated_time');
+                    
+                    // Apply user filter if provided
+                    if ($userId) {
+                        $weekTasksQuery->where('user_id', $userId);
                     }
+                    
+                    $weekTasks = $weekTasksQuery
+                        ->whereHas('timeEntries', function ($query) use ($weekStart, $weekEnd) {
+                            $query->whereNotNull('clock_out')
+                                ->whereBetween('date', [$weekStart->toDateString(), $weekEnd->toDateString()]);
+                        })
+                        ->with(['timeEntries' => function ($query) use ($weekStart, $weekEnd) {
+                            $query->whereNotNull('clock_out')
+                                ->whereBetween('date', [$weekStart->toDateString(), $weekEnd->toDateString()]);
+                        }])
+                        ->get();
+
+                    $weekEstimated = 0;
+                    $weekTracked = 0;
+                    $weekValidCount = 0;
+
+                    foreach ($weekTasks as $task) {
+                        $estimatedHours = $task->estimated_time / (1000 * 60 * 60);
+                        $trackedHours = $task->timeEntries->sum('total_hours') ?? 0;
+                        
+                        if ($trackedHours > 0) {
+                            $weekEstimated += $estimatedHours;
+                            $weekTracked += $trackedHours;
+                            $weekValidCount++;
+                        }
+                    }
+
+                    $weekEfficiency = $weekTracked > 0 && $weekValidCount > 0 
+                        ? ($weekEstimated / $weekTracked) * 100 
+                        : null;
+
+                    $trendData[] = [
+                        'week' => $weekStart->format('M d'),
+                        'efficiency' => $weekEfficiency !== null ? round($weekEfficiency, 2) : null,
+                    ];
+                    
+                    $current->addWeek();
                 }
+            } else {
+                // Default to last 12 weeks if no date range provided
+                for ($i = 11; $i >= 0; $i--) {
+                    $weekStart = now()->subWeeks($i)->startOfWeek();
+                    $weekEnd = $weekStart->copy()->endOfWeek();
+                    
+                    $weekTasksQuery = Task::whereNotNull('estimated_time');
+                    
+                    // Apply user filter if provided
+                    if ($userId) {
+                        $weekTasksQuery->where('user_id', $userId);
+                    }
+                    
+                    $weekTasks = $weekTasksQuery
+                        ->whereHas('timeEntries', function ($query) use ($weekStart, $weekEnd) {
+                            $query->whereNotNull('clock_out')
+                                ->whereBetween('date', [$weekStart->toDateString(), $weekEnd->toDateString()]);
+                        })
+                        ->with(['timeEntries' => function ($query) use ($weekStart, $weekEnd) {
+                            $query->whereNotNull('clock_out')
+                                ->whereBetween('date', [$weekStart->toDateString(), $weekEnd->toDateString()]);
+                        }])
+                        ->get();
 
-                $weekEfficiency = $weekTracked > 0 && $weekValidCount > 0 
-                    ? ($weekEstimated / $weekTracked) * 100 
-                    : null;
+                    $weekEstimated = 0;
+                    $weekTracked = 0;
+                    $weekValidCount = 0;
 
-                $trendData[] = [
-                    'week' => $week['label'],
-                    'efficiency' => $weekEfficiency !== null ? round($weekEfficiency, 2) : null,
-                ];
+                    foreach ($weekTasks as $task) {
+                        $estimatedHours = $task->estimated_time / (1000 * 60 * 60);
+                        $trackedHours = $task->timeEntries->sum('total_hours') ?? 0;
+                        
+                        if ($trackedHours > 0) {
+                            $weekEstimated += $estimatedHours;
+                            $weekTracked += $trackedHours;
+                            $weekValidCount++;
+                        }
+                    }
+
+                    $weekEfficiency = $weekTracked > 0 && $weekValidCount > 0 
+                        ? ($weekEstimated / $weekTracked) * 100 
+                        : null;
+
+                    $trendData[] = [
+                        'week' => $weekStart->format('M d'),
+                        'efficiency' => $weekEfficiency !== null ? round($weekEfficiency, 2) : null,
+                    ];
+                }
             }
 
             return response()->json([
