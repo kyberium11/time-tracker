@@ -487,10 +487,67 @@ const runningTaskDisplay = computed(() => {
     return `${pad(h)}:${pad(m)}:${pad(s)}`;
 });
 
-// Total working hours today for 0/8 Hours display
+// Total working hours today for 0/8 Hours display (real-time)
 const workingHoursToday = computed(() => {
-    // Use aggregated seconds across all today's sessions
-    const hours = (todayWorkSeconds.value || 0) / 3600;
+    // Start with completed work seconds from API (includes completed work entries and completed task entries)
+    let totalSeconds = todayWorkSeconds.value || 0;
+    
+    // Add current running work entry session if clocked in (work entry without clock_out)
+    // This is the general "clocked in" time, not task-specific
+    if (isClockedIn.value && currentEntry.value?.clock_in && !currentEntry.value?.clock_out) {
+        const clockInTime = new Date(currentEntry.value.clock_in);
+        const now = currentTime.value;
+        const sessionSeconds = Math.max(0, Math.floor((now.getTime() - clockInTime.getTime()) / 1000));
+        
+        // Subtract break time if on break or if break was taken
+        let breakSeconds = 0;
+        if (currentEntry.value.break_start) {
+            if (!currentEntry.value.break_end) {
+                // Currently on break - subtract current break time
+                const breakStart = new Date(currentEntry.value.break_start);
+                breakSeconds = Math.max(0, Math.floor((now.getTime() - breakStart.getTime()) / 1000));
+            } else {
+                // Break completed - subtract total break time
+                const breakStart = new Date(currentEntry.value.break_start);
+                const breakEnd = new Date(currentEntry.value.break_end);
+                breakSeconds = Math.max(0, Math.floor((breakEnd.getTime() - breakStart.getTime()) / 1000));
+            }
+        }
+        
+        // Subtract lunch time if on lunch or if lunch was taken
+        let lunchSeconds = 0;
+        if (currentEntry.value.lunch_start) {
+            if (!currentEntry.value.lunch_end) {
+                // Currently on lunch - subtract current lunch time
+                const lunchStart = new Date(currentEntry.value.lunch_start);
+                lunchSeconds = Math.max(0, Math.floor((now.getTime() - lunchStart.getTime()) / 1000));
+            } else {
+                // Lunch completed - subtract total lunch time
+                const lunchStart = new Date(currentEntry.value.lunch_start);
+                const lunchEnd = new Date(currentEntry.value.lunch_end);
+                lunchSeconds = Math.max(0, Math.floor((lunchEnd.getTime() - lunchStart.getTime()) / 1000));
+            }
+        }
+        
+        // Add net working time (session time minus breaks and lunch)
+        const netSessionSeconds = Math.max(0, sessionSeconds - breakSeconds - lunchSeconds);
+        totalSeconds += netSessionSeconds;
+    }
+    
+    // Also add any running task entries (these are separate independent timers)
+    // Task entries are separate time entries with task_id, so they should be added separately
+    if (taskEntries.value && taskEntries.value.length > 0) {
+        taskEntries.value.forEach((t: any) => {
+            if (t.clock_in && !t.clock_out) {
+                const taskStart = new Date(t.clock_in);
+                const now = currentTime.value;
+                const taskSeconds = Math.max(0, Math.floor((now.getTime() - taskStart.getTime()) / 1000));
+                totalSeconds += taskSeconds;
+            }
+        });
+    }
+    
+    const hours = totalSeconds / 3600;
     return hours.toFixed(2);
 });
 
