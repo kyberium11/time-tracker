@@ -157,6 +157,13 @@ const loadAdminActivityLogs = async () => {
 };
 
 let timeInterval: number | null = null;
+let notificationCheckInterval: number | null = null;
+
+// Notification tracking
+const breakNotification13Sent = ref(false);
+const breakNotification15Sent = ref(false);
+const lunchNotificationSent = ref(false);
+const hasTimedOutToday = ref(false);
 
 const isClockedIn = computed(() => Boolean(currentEntry.value?.clock_in) && !currentEntry.value?.clock_out);
 const isOnBreak = computed(() => Boolean(currentEntry.value?.break_start) && !currentEntry.value?.break_end);
@@ -248,6 +255,111 @@ const todayTimeEntries = computed(() => {
     return rows;
 });
 
+// Browser notification functions
+const requestNotificationPermission = async () => {
+    if ('Notification' in window) {
+        if (Notification.permission === 'default') {
+            await Notification.requestPermission();
+        }
+    }
+};
+
+const showNotification = (title: string, body: string, options?: NotificationOptions) => {
+    if ('Notification' in window && Notification.permission === 'granted') {
+        new Notification(title, {
+            body,
+            icon: '/favicon.ico',
+            badge: '/favicon.ico',
+            tag: 'time-tracker-notification',
+            requireInteraction: false,
+            ...options,
+        });
+    }
+};
+
+// Check break duration and send notifications
+const checkBreakNotifications = () => {
+    if (isOnBreak.value && currentEntry.value?.break_start) {
+        const breakStart = new Date(currentEntry.value.break_start);
+        const now = currentTime.value;
+        const breakSeconds = Math.floor((now.getTime() - breakStart.getTime()) / 1000);
+        const breakMinutes = Math.floor(breakSeconds / 60);
+
+        // Notify at 13 minutes (close to 15 minute limit)
+        if (breakMinutes >= 13 && !breakNotification13Sent.value) {
+            showNotification(
+                'Break Reminder',
+                'You\'re approaching the 15-minute break limit. Please end your break soon.',
+                { tag: 'break-13-min' }
+            );
+            breakNotification13Sent.value = true;
+        }
+
+        // Notify at 15 minutes (overbreak)
+        if (breakMinutes >= 15 && !breakNotification15Sent.value) {
+            showNotification(
+                'Break Over Limit',
+                'You\'ve exceeded the 15-minute break limit. Please end your break now.',
+                { tag: 'break-15-min', requireInteraction: true }
+            );
+            breakNotification15Sent.value = true;
+        }
+    } else {
+        // Reset notifications when break ends
+        if (!isOnBreak.value) {
+            breakNotification13Sent.value = false;
+            breakNotification15Sent.value = false;
+        }
+    }
+};
+
+// Check lunch notification on first time out of the day
+const checkLunchNotification = async () => {
+    // Only check on first time out of the day
+    if (hasTimedOutToday.value || lunchNotificationSent.value) {
+        return;
+    }
+
+    // Only check when user is clocked out (not during active work)
+    if (isClockedIn.value) {
+        return;
+    }
+
+    // Check if user has timed out (has clock_out) and this is the first time out today
+    if (currentEntry.value?.clock_out && currentEntry.value?.clock_in) {
+        const clockInTime = new Date(currentEntry.value.clock_in);
+        const clockOutTime = new Date(currentEntry.value.clock_out);
+        const workDurationSeconds = Math.floor((clockOutTime.getTime() - clockInTime.getTime()) / 1000);
+        const workDurationHours = workDurationSeconds / 3600;
+
+        // Check if it's been 1 hour and no lunch was taken
+        if (workDurationHours >= 1 && !currentEntry.value.lunch_start && !lunchNotificationSent.value) {
+            showNotification(
+                'Lunch Reminder',
+                'You\'ve been working for 1 hour without taking lunch. Please remember to take your lunch break.',
+                { tag: 'lunch-reminder', requireInteraction: true }
+            );
+            lunchNotificationSent.value = true;
+            hasTimedOutToday.value = true;
+        }
+    }
+};
+
+// Monitor notifications every minute
+const startNotificationMonitoring = () => {
+    if (notificationCheckInterval) {
+        clearInterval(notificationCheckInterval);
+    }
+    
+    notificationCheckInterval = window.setInterval(() => {
+        checkBreakNotifications();
+        // Only check lunch notification periodically if not already sent
+        if (!lunchNotificationSent.value) {
+            checkLunchNotification();
+        }
+    }, 60000); // Check every minute
+};
+
 // Prevent closing/refreshing if clocked in
 const handleBeforeUnload = (e: BeforeUnloadEvent) => {
     // Check if user is clocked in (has clock_in but no clock_out)
@@ -259,9 +371,12 @@ const handleBeforeUnload = (e: BeforeUnloadEvent) => {
     }
 };
 
-onMounted(() => {
+onMounted(async () => {
     const today = new Date();
     timeEntriesDate.value = today.toISOString().split('T')[0];
+    
+    // Request notification permission
+    await requestNotificationPermission();
     
     fetchCurrentEntry();
     fetchUserRole();
@@ -274,6 +389,9 @@ onMounted(() => {
         currentTime.value = new Date();
     }, 1000);
     
+    // Start notification monitoring
+    startNotificationMonitoring();
+    
     // Add beforeunload event listener to prevent closing if clocked in
     window.addEventListener('beforeunload', handleBeforeUnload);
 });
@@ -281,6 +399,9 @@ onMounted(() => {
 onUnmounted(() => {
     if (timeInterval) {
         window.clearInterval(timeInterval);
+    }
+    if (notificationCheckInterval) {
+        clearInterval(notificationCheckInterval);
     }
     // Remove beforeunload event listener
     window.removeEventListener('beforeunload', handleBeforeUnload);
@@ -291,6 +412,19 @@ const fetchCurrentEntry = async () => {
         const response = await api.get('/time-entries/current');
         currentEntry.value = response.data;
         updateStatus();
+        
+        // Reset break notifications when break state changes
+        if (!isOnBreak.value) {
+            breakNotification13Sent.value = false;
+            breakNotification15Sent.value = false;
+        }
+        
+        // Reset lunch notification at start of new day
+        const today = new Date().toISOString().split('T')[0];
+        if (timeEntriesDate.value !== today) {
+            lunchNotificationSent.value = false;
+            hasTimedOutToday.value = false;
+        }
     } catch (error) {
         currentEntry.value = null;
         status.value = 'No entry today';
@@ -740,6 +874,11 @@ const clockOut = async () => {
         await fetchCurrentEntry();
         await fetchMyTasks();
         await loadTodayEntries();
+        
+        // Check for lunch notification after time out
+        setTimeout(() => {
+            checkLunchNotification();
+        }, 1000);
     } catch (error: any) {
         alert(error.response?.data?.message || 'Error clocking out');
     } finally {
