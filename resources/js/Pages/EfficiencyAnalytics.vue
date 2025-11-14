@@ -161,12 +161,28 @@ const loadEfficiencyData = async () => {
     state.loading = true;
     try {
         const response = await api.get('/admin/analytics/efficiency', { params: buildQueryParams() });
-        state.summary = response.data.summary;
-        state.tasks = response.data.tasks;
-        state.userEfficiency = response.data.user_efficiency;
-        state.trendData = response.data.trend;
+        const data = response.data?.data || response.data;
+        
+        // Ensure we have valid data structures
+        state.summary = data?.summary || null;
+        state.tasks = Array.isArray(data?.tasks) ? data.tasks : [];
+        state.userEfficiency = Array.isArray(data?.user_efficiency) ? data.user_efficiency : [];
+        state.trendData = Array.isArray(data?.trend) ? data.trend : [];
+        
+        // Debug logging
+        console.log('Efficiency data loaded:', {
+            summary: state.summary,
+            tasksCount: state.tasks.length,
+            userEfficiencyCount: state.userEfficiency.length,
+            trendDataCount: state.trendData.length,
+        });
     } catch (error: any) {
         console.error('Error loading efficiency data:', error);
+        // Reset state on error
+        state.summary = null;
+        state.tasks = [];
+        state.userEfficiency = [];
+        state.trendData = [];
         alert(error?.response?.data?.error || 'Failed to load efficiency data');
     } finally {
         state.loading = false;
@@ -295,26 +311,42 @@ const getStatusColor = (status: string): string => {
 };
 
 // Chart data for user efficiency (bar chart)
-const userChartData = computed(() => ({
-    labels: state.userEfficiency.map((u) => u.user),
-    datasets: [
-        {
-            label: 'Efficiency (%)',
-            data: state.userEfficiency.map((u) => u.efficiency),
-            backgroundColor: state.userEfficiency.map((u) => {
-                if (u.efficiency >= 100) return 'rgba(34, 197, 94, 0.8)';
-                if (u.efficiency >= 90) return 'rgba(234, 179, 8, 0.8)';
-                return 'rgba(239, 68, 68, 0.8)';
-            }),
-            borderColor: state.userEfficiency.map((u) => {
-                if (u.efficiency >= 100) return 'rgba(34, 197, 94, 1)';
-                if (u.efficiency >= 90) return 'rgba(234, 179, 8, 1)';
-                return 'rgba(239, 68, 68, 1)';
-            }),
-            borderWidth: 1,
-        },
-    ],
-}));
+const userChartData = computed(() => {
+    if (!state.userEfficiency || state.userEfficiency.length === 0) {
+        return {
+            labels: [],
+            datasets: [{
+                label: 'Efficiency (%)',
+                data: [],
+                backgroundColor: [],
+                borderColor: [],
+                borderWidth: 1,
+            }],
+        };
+    }
+    return {
+        labels: state.userEfficiency.map((u) => u.user || 'Unknown'),
+        datasets: [
+            {
+                label: 'Efficiency (%)',
+                data: state.userEfficiency.map((u) => u.efficiency || 0),
+                backgroundColor: state.userEfficiency.map((u) => {
+                    const eff = u.efficiency || 0;
+                    if (eff >= 100) return 'rgba(34, 197, 94, 0.8)';
+                    if (eff >= 90) return 'rgba(234, 179, 8, 0.8)';
+                    return 'rgba(239, 68, 68, 0.8)';
+                }),
+                borderColor: state.userEfficiency.map((u) => {
+                    const eff = u.efficiency || 0;
+                    if (eff >= 100) return 'rgba(34, 197, 94, 1)';
+                    if (eff >= 90) return 'rgba(234, 179, 8, 1)';
+                    return 'rgba(239, 68, 68, 1)';
+                }),
+                borderWidth: 1,
+            },
+        ],
+    };
+});
 
 const userChartOptions = {
     responsive: true,
@@ -329,7 +361,10 @@ const userChartOptions = {
         },
         tooltip: {
             callbacks: {
-                label: (context: any) => `${context.parsed.y.toFixed(2)}%`,
+                label: (context: any) => {
+                    const value = context.parsed.y;
+                    return value !== null && value !== undefined ? `${value.toFixed(2)}%` : 'No data';
+                },
             },
         },
     },
@@ -345,20 +380,37 @@ const userChartOptions = {
 };
 
 // Chart data for trend (line chart)
-const trendChartData = computed(() => ({
-    labels: state.trendData.map((t) => t.week),
-    datasets: [
-        {
-            label: 'Average Efficiency (%)',
-            data: state.trendData.map((t) => t.efficiency),
-            borderColor: 'rgba(59, 130, 246, 1)',
-            backgroundColor: 'rgba(59, 130, 246, 0.1)',
-            borderWidth: 2,
-            fill: true,
-            tension: 0.4,
-        },
-    ],
-}));
+const trendChartData = computed(() => {
+    if (!state.trendData || state.trendData.length === 0) {
+        return {
+            labels: [],
+            datasets: [{
+                label: 'Average Efficiency (%)',
+                data: [],
+                borderColor: 'rgba(59, 130, 246, 1)',
+                backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                borderWidth: 2,
+                fill: true,
+                tension: 0.4,
+            }],
+        };
+    }
+    return {
+        labels: state.trendData.map((t) => t.week || ''),
+        datasets: [
+            {
+                label: 'Average Efficiency (%)',
+                data: state.trendData.map((t) => t.efficiency !== null && t.efficiency !== undefined ? t.efficiency : null),
+                borderColor: 'rgba(59, 130, 246, 1)',
+                backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                borderWidth: 2,
+                fill: true,
+                tension: 0.4,
+                spanGaps: true,
+            },
+        ],
+    };
+});
 
 const trendChartOptions = {
     responsive: true,
@@ -489,7 +541,7 @@ const formatPercent = (value: number) => `${value.toFixed(2)}%`;
                                 <div class="p-5">
                                     <dt class="text-sm font-medium text-gray-500">Average Efficiency</dt>
                                     <dd class="text-2xl font-semibold text-gray-900 mt-1">
-                                        {{ efficiencySummary?.average_efficiency?.toFixed(2) || '0.00' }}%
+                                        {{ efficiencySummary && efficiencySummary.average_efficiency !== undefined && efficiencySummary.average_efficiency !== null ? efficiencySummary.average_efficiency.toFixed(2) : '0.00' }}%
                                     </dd>
                                 </div>
                             </div>
@@ -497,7 +549,7 @@ const formatPercent = (value: number) => `${value.toFixed(2)}%`;
                                 <div class="p-5">
                                     <dt class="text-sm font-medium text-gray-500">Total Estimated Time</dt>
                                     <dd class="text-2xl font-semibold text-gray-900 mt-1">
-                                        {{ efficiencySummary?.total_estimated_time?.toFixed(2) || '0.00' }} hrs
+                                        {{ efficiencySummary && efficiencySummary.total_estimated_time !== undefined && efficiencySummary.total_estimated_time !== null ? efficiencySummary.total_estimated_time.toFixed(2) : '0.00' }} hrs
                                     </dd>
                                 </div>
                             </div>
@@ -505,7 +557,7 @@ const formatPercent = (value: number) => `${value.toFixed(2)}%`;
                                 <div class="p-5">
                                     <dt class="text-sm font-medium text-gray-500">Total Tracked Time</dt>
                                     <dd class="text-2xl font-semibold text-gray-900 mt-1">
-                                        {{ efficiencySummary?.total_tracked_time?.toFixed(2) || '0.00' }} hrs
+                                        {{ efficiencySummary && efficiencySummary.total_tracked_time !== undefined && efficiencySummary.total_tracked_time !== null ? efficiencySummary.total_tracked_time.toFixed(2) : '0.00' }} hrs
                                     </dd>
                                 </div>
                             </div>
@@ -513,51 +565,8 @@ const formatPercent = (value: number) => `${value.toFixed(2)}%`;
                                 <div class="p-5">
                                     <dt class="text-sm font-medium text-gray-500">Overrun Rate</dt>
                                     <dd class="text-2xl font-semibold text-gray-900 mt-1">
-                                        {{ efficiencySummary?.overrun_rate?.toFixed(2) || '0.00' }}%
+                                        {{ efficiencySummary && efficiencySummary.overrun_rate !== undefined && efficiencySummary.overrun_rate !== null ? efficiencySummary.overrun_rate.toFixed(2) : '0.00' }}%
                                     </dd>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="bg-white shadow rounded-lg overflow-hidden">
-                            <div class="px-4 py-5 sm:p-6">
-                                <h3 class="text-lg font-medium text-gray-900 mb-4">Task Efficiency Details</h3>
-                                <div class="overflow-x-auto">
-                                    <table class="min-w-full divide-y divide-gray-200">
-                                        <thead class="bg-gray-50">
-                                            <tr>
-                                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Task Name</th>
-                                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Assigned To</th>
-                                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Project</th>
-                                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Estimated Time</th>
-                                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tracked Time</th>
-                                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Efficiency</th>
-                                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody class="bg-white divide-y divide-gray-200">
-                                            <tr v-for="task in efficiencyTasks" :key="task.id">
-                                                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">{{ task.task_name }}</td>
-                                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ task.assigned_to }}</td>
-                                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ task.project }}</td>
-                                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ task.estimated_time.toFixed(2) }} hrs</td>
-                                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">{{ task.tracked_time.toFixed(2) }} hrs</td>
-                                                <td class="px-6 py-4 whitespace-nowrap text-sm">
-                                                    <span :class="['font-semibold', getEfficiencyColor(task.efficiency)]">
-                                                        {{ task.efficiency !== null ? task.efficiency.toFixed(2) + '%' : 'N/A' }}
-                                                    </span>
-                                                </td>
-                                                <td class="px-6 py-4 whitespace-nowrap">
-                                                    <span :class="['px-2 inline-flex text-xs leading-5 font-semibold rounded-full', getStatusColor(task.status)]">
-                                                        {{ task.status }}
-                                                    </span>
-                                                </td>
-                                            </tr>
-                                            <tr v-if="efficiencyTasks.length === 0">
-                                                <td colspan="7" class="px-6 py-4 text-center text-sm text-gray-500">No tasks with estimated time found.</td>
-                                            </tr>
-                                        </tbody>
-                                    </table>
                                 </div>
                             </div>
                         </div>
@@ -565,13 +574,23 @@ const formatPercent = (value: number) => `${value.toFixed(2)}%`;
                         <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                             <div class="bg-white shadow rounded-lg overflow-hidden">
                                 <div class="px-4 py-5 sm:p-6" style="height: 400px;">
-                                    <Bar v-if="efficiencyUserEfficiency.length > 0" :data="userChartData" :options="userChartOptions" />
+                                    <Bar 
+                                        v-if="efficiencyUserEfficiency && efficiencyUserEfficiency.length > 0" 
+                                        :key="`user-chart-${efficiencyUserEfficiency.length}`"
+                                        :data="userChartData" 
+                                        :options="userChartOptions" 
+                                    />
                                     <div v-else class="flex items-center justify-center h-full text-gray-500">No user efficiency data available</div>
                                 </div>
                             </div>
                             <div class="bg-white shadow rounded-lg overflow-hidden">
                                 <div class="px-4 py-5 sm:p-6" style="height: 400px;">
-                                    <Line v-if="efficiencyTrend.length > 0" :data="trendChartData" :options="trendChartOptions" />
+                                    <Line 
+                                        v-if="efficiencyTrend && efficiencyTrend.length > 0" 
+                                        :key="`trend-chart-${efficiencyTrend.length}`"
+                                        :data="trendChartData" 
+                                        :options="trendChartOptions" 
+                                    />
                                     <div v-else class="flex items-center justify-center h-full text-gray-500">No trend data available</div>
                                 </div>
                             </div>
