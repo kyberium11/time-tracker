@@ -18,8 +18,18 @@ class TaskController extends Controller
     public function myTasks()
     {
         $tasks = Task::where('user_id', Auth::id())
+            ->with(['parentTask' => function ($query) {
+                $query->select('id', 'title', 'clickup_task_id');
+            }])
             ->orderBy('updated_at', 'desc')
-            ->get(['id', 'title', 'status', 'priority', 'due_date', 'clickup_task_id', 'estimated_time', 'clickup_list_name']);
+            ->get(['id', 'title', 'status', 'priority', 'due_date', 'clickup_task_id', 'clickup_parent_id', 'estimated_time', 'clickup_list_name']);
+
+        // Add parent task name to each task
+        $tasks->transform(function ($task) {
+            $taskArray = $task->toArray();
+            $taskArray['parent_task_name'] = $task->parentTask ? $task->parentTask->title : null;
+            return $taskArray;
+        });
 
         return response()->json($tasks);
     }

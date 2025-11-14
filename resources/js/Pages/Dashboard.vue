@@ -24,6 +24,7 @@ interface TaskItem {
     clickup_task_id: string;
     estimated_time?: number | null; // in milliseconds
     clickup_list_name?: string | null;
+    parent_task_name?: string | null;
 }
 
 interface TimeEvent {
@@ -1225,7 +1226,7 @@ const formatTaskContent = (content: string | null | undefined) => {
         </template>
 
         <div class="py-12">
-            <div class="mx-auto max-w-7xl sm:px-6 lg:px-8">
+            <div class="mx-auto max-w-[95%] sm:px-6 lg:px-8">
                 <!-- Tab Navigation for Employees and Developers -->
                 <div v-if="userRole !== 'admin'" class="border-b border-gray-200 mb-6">
                     <nav class="-mb-px flex space-x-8">
@@ -1398,6 +1399,7 @@ const formatTaskContent = (content: string | null | undefined) => {
                                     <tr>
                                         <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Task</th>
                                         <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Campaign</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Parent Task</th>
                                         <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Status</th>
                                         <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Due Date</th>
                                         <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Estimated Time</th>
@@ -1411,6 +1413,7 @@ const formatTaskContent = (content: string | null | undefined) => {
                                             <button @click="openTaskDetails(t.id)" class="hover:underline">{{ t.title }}</button>
                                         </td>
                                         <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-900">{{ t.clickup_list_name || '--' }}</td>
+                                        <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-900">{{ t.parent_task_name || 'N/A' }}</td>
                                         <td class="whitespace-nowrap px-6 py-4 text-sm">
                                             <span 
                                                 v-if="isStatusPill(t.status)"

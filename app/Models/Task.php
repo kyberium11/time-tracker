@@ -35,6 +35,14 @@ class Task extends Model
     {
         return $this->hasMany(TimeEntry::class);
     }
+
+    /**
+     * Get the parent task if this is a subtask.
+     */
+    public function parentTask(): BelongsTo
+    {
+        return $this->belongsTo(Task::class, 'clickup_parent_id', 'clickup_task_id');
+    }
 }
 
 
