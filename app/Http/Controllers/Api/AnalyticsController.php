@@ -1637,7 +1637,38 @@ class AnalyticsController extends Controller
                 $estimatedHours = $task->estimated_time / (1000 * 60 * 60);
                 
                 // Calculate tracked time from time entries
-                $trackedHours = $task->timeEntries->sum('total_hours') ?? 0;
+                // Filter time entries that have total_hours > 0
+                $trackedHours = $task->timeEntries
+                    ->where('total_hours', '>', 0)
+                    ->sum('total_hours') ?? 0;
+                
+                // If trackedHours is still 0, try calculating from clock_in/clock_out
+                if ($trackedHours == 0 && $task->timeEntries->count() > 0) {
+                    $trackedHours = $task->timeEntries->sum(function ($entry) {
+                        if (!$entry->clock_in || !$entry->clock_out) {
+                            return $entry->total_hours ?? 0;
+                        }
+                        $clockIn = \Carbon\Carbon::parse($entry->clock_in);
+                        $clockOut = \Carbon\Carbon::parse($entry->clock_out);
+                        $minutes = $clockOut->diffInMinutes($clockIn);
+                        
+                        // Subtract breaks
+                        if ($entry->break_start && $entry->break_end) {
+                            $breakStart = \Carbon\Carbon::parse($entry->break_start);
+                            $breakEnd = \Carbon\Carbon::parse($entry->break_end);
+                            $minutes -= $breakStart->diffInMinutes($breakEnd);
+                        }
+                        
+                        // Subtract lunch
+                        if ($entry->lunch_start && $entry->lunch_end) {
+                            $lunchStart = \Carbon\Carbon::parse($entry->lunch_start);
+                            $lunchEnd = \Carbon\Carbon::parse($entry->lunch_end);
+                            $minutes -= $lunchStart->diffInMinutes($lunchEnd);
+                        }
+                        
+                        return max(0, round($minutes / 60, 2));
+                    });
+                }
                 
                 // Calculate efficiency: (EstimatedTime / TrackedTime) * 100
                 // If tracked time is 0, efficiency is undefined
@@ -1684,7 +1715,36 @@ class AnalyticsController extends Controller
             foreach ($tasks as $task) {
                 if (!$task->user) continue;
                 
-                $trackedHours = $task->timeEntries->sum('total_hours') ?? 0;
+                // Calculate tracked hours with fallback
+                $trackedHours = $task->timeEntries
+                    ->where('total_hours', '>', 0)
+                    ->sum('total_hours') ?? 0;
+                
+                // If trackedHours is still 0, try calculating from clock_in/clock_out
+                if ($trackedHours == 0 && $task->timeEntries->count() > 0) {
+                    $trackedHours = $task->timeEntries->sum(function ($entry) {
+                        if (!$entry->clock_in || !$entry->clock_out) {
+                            return $entry->total_hours ?? 0;
+                        }
+                        $clockIn = \Carbon\Carbon::parse($entry->clock_in);
+                        $clockOut = \Carbon\Carbon::parse($entry->clock_out);
+                        $minutes = $clockOut->diffInMinutes($clockIn);
+                        
+                        if ($entry->break_start && $entry->break_end) {
+                            $breakStart = \Carbon\Carbon::parse($entry->break_start);
+                            $breakEnd = \Carbon\Carbon::parse($entry->break_end);
+                            $minutes -= $breakStart->diffInMinutes($breakEnd);
+                        }
+                        
+                        if ($entry->lunch_start && $entry->lunch_end) {
+                            $lunchStart = \Carbon\Carbon::parse($entry->lunch_start);
+                            $lunchEnd = \Carbon\Carbon::parse($entry->lunch_end);
+                            $minutes -= $lunchStart->diffInMinutes($lunchEnd);
+                        }
+                        
+                        return max(0, round($minutes / 60, 2));
+                    });
+                }
                 
                 // Only include tasks with tracked time in the date range
                 if ($trackedHours <= 0) continue;
@@ -1762,7 +1822,37 @@ class AnalyticsController extends Controller
 
                     foreach ($weekTasks as $task) {
                         $estimatedHours = $task->estimated_time / (1000 * 60 * 60);
-                        $trackedHours = $task->timeEntries->sum('total_hours') ?? 0;
+                        
+                        // Calculate tracked hours with fallback
+                        $trackedHours = $task->timeEntries
+                            ->where('total_hours', '>', 0)
+                            ->sum('total_hours') ?? 0;
+                        
+                        // If trackedHours is still 0, try calculating from clock_in/clock_out
+                        if ($trackedHours == 0 && $task->timeEntries->count() > 0) {
+                            $trackedHours = $task->timeEntries->sum(function ($entry) {
+                                if (!$entry->clock_in || !$entry->clock_out) {
+                                    return $entry->total_hours ?? 0;
+                                }
+                                $clockIn = \Carbon\Carbon::parse($entry->clock_in);
+                                $clockOut = \Carbon\Carbon::parse($entry->clock_out);
+                                $minutes = $clockOut->diffInMinutes($clockIn);
+                                
+                                if ($entry->break_start && $entry->break_end) {
+                                    $breakStart = \Carbon\Carbon::parse($entry->break_start);
+                                    $breakEnd = \Carbon\Carbon::parse($entry->break_end);
+                                    $minutes -= $breakStart->diffInMinutes($breakEnd);
+                                }
+                                
+                                if ($entry->lunch_start && $entry->lunch_end) {
+                                    $lunchStart = \Carbon\Carbon::parse($entry->lunch_start);
+                                    $lunchEnd = \Carbon\Carbon::parse($entry->lunch_end);
+                                    $minutes -= $lunchStart->diffInMinutes($lunchEnd);
+                                }
+                                
+                                return max(0, round($minutes / 60, 2));
+                            });
+                        }
                         
                         if ($trackedHours > 0) {
                             $weekEstimated += $estimatedHours;
@@ -1812,7 +1902,37 @@ class AnalyticsController extends Controller
 
                     foreach ($weekTasks as $task) {
                         $estimatedHours = $task->estimated_time / (1000 * 60 * 60);
-                        $trackedHours = $task->timeEntries->sum('total_hours') ?? 0;
+                        
+                        // Calculate tracked hours with fallback
+                        $trackedHours = $task->timeEntries
+                            ->where('total_hours', '>', 0)
+                            ->sum('total_hours') ?? 0;
+                        
+                        // If trackedHours is still 0, try calculating from clock_in/clock_out
+                        if ($trackedHours == 0 && $task->timeEntries->count() > 0) {
+                            $trackedHours = $task->timeEntries->sum(function ($entry) {
+                                if (!$entry->clock_in || !$entry->clock_out) {
+                                    return $entry->total_hours ?? 0;
+                                }
+                                $clockIn = \Carbon\Carbon::parse($entry->clock_in);
+                                $clockOut = \Carbon\Carbon::parse($entry->clock_out);
+                                $minutes = $clockOut->diffInMinutes($clockIn);
+                                
+                                if ($entry->break_start && $entry->break_end) {
+                                    $breakStart = \Carbon\Carbon::parse($entry->break_start);
+                                    $breakEnd = \Carbon\Carbon::parse($entry->break_end);
+                                    $minutes -= $breakStart->diffInMinutes($breakEnd);
+                                }
+                                
+                                if ($entry->lunch_start && $entry->lunch_end) {
+                                    $lunchStart = \Carbon\Carbon::parse($entry->lunch_start);
+                                    $lunchEnd = \Carbon\Carbon::parse($entry->lunch_end);
+                                    $minutes -= $lunchStart->diffInMinutes($lunchEnd);
+                                }
+                                
+                                return max(0, round($minutes / 60, 2));
+                            });
+                        }
                         
                         if ($trackedHours > 0) {
                             $weekEstimated += $estimatedHours;
