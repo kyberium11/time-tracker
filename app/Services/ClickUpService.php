@@ -413,6 +413,39 @@ class ClickUpService
      * List tasks in a ClickUp team filtered by assignee id (numeric) or email.
      * Returns an array of task objects as provided by ClickUp.
      */
+    /**
+     * Get user's teams/workspaces to verify access.
+     */
+    public function getUserTeams(): array
+    {
+        $headers = [
+            'Authorization' => (string) $this->apiToken,
+            'Accept' => 'application/json',
+        ];
+        
+        try {
+            $response = Http::withHeaders($headers)
+                ->timeout(10)
+                ->get('https://api.clickup.com/api/v2/user');
+            
+            if ($response->failed()) {
+                Log::warning('ClickUp get user teams failed', [
+                    'status' => $response->status(),
+                    'body' => $response->body(),
+                ]);
+                return [];
+            }
+            
+            $data = $response->json();
+            return $data['teams'] ?? [];
+        } catch (\Throwable $e) {
+            Log::warning('ClickUp get user teams exception', [
+                'message' => $e->getMessage(),
+            ]);
+            return [];
+        }
+    }
+
     public function listTeamTasksByAssignee(string $teamId, ?string $assigneeId = null, ?string $assigneeEmail = null, array $extraQuery = []): array
     {
         return $this->listTasksByScope('team/' . $teamId, $assigneeId, $assigneeEmail, $extraQuery);

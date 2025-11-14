@@ -117,19 +117,11 @@ class TaskController extends Controller
         $assigneeId = $user->clickup_user_id ? (string) $user->clickup_user_id : null;
         $assigneeEmail = !$assigneeId ? (string) $user->email : null;
 
-        // Optional: filter by specific spaces within the same team(s)
-        $spaceIdsEnv = (string) (env('CLICKUP_SPACE_IDS') ?? '');
-        $spaceIds = [];
-        if ($spaceIdsEnv !== '') {
-            $spaceIds = array_values(array_filter(array_map(fn($s) => trim($s), explode(',', $spaceIdsEnv)), fn($s) => $s !== ''));
-        }
-        $extraQuery = [];
-        if (count($spaceIds) > 0) {
-            // ClickUp team task search accepts a comma-separated list for space_ids
-            $extraQuery['space_ids'] = implode(',', $spaceIds);
-        }
+        // Note: ClickUp API doesn't support space-level task queries directly
+        // We'll fetch from team level only, which will include all tasks across spaces
+        // The space_ids filter in team queries is not supported by ClickUp API v2
 
-        // Fetch tasks across all configured teams and spaces, merge/deduplicate.
+        // Fetch tasks across all configured teams, merge/deduplicate.
         $allTasks = [];
         $seen = [];
 
@@ -144,17 +136,32 @@ class TaskController extends Controller
         };
 
         foreach ($teamIds as $teamId) {
-            $tasksChunk = $clickUp->listTeamTasksByAssignee((string) $teamId, $assigneeId, $assigneeEmail, $extraQuery);
-            $collectTasks($tasksChunk);
-        }
-
-        if (count($spaceIds) > 0) {
-            foreach ($spaceIds as $spaceId) {
-                $tasksChunk = $clickUp->listSpaceTasksByAssignee((string) $spaceId, $assigneeId, $assigneeEmail);
+            // Fetch tasks from team level (includes all spaces in the team)
+            try {
+                $tasksChunk = $clickUp->listTeamTasksByAssignee((string) $teamId, $assigneeId, $assigneeEmail, []);
                 $collectTasks($tasksChunk);
+            } catch (\Throwable $e) {
+                \Log::error('Failed to fetch tasks from ClickUp team', [
+                    'teamId' => $teamId,
+                    'assigneeId' => $assigneeId,
+                    'assigneeEmail' => $assigneeEmail,
+                    'error' => $e->getMessage(),
+                ]);
+                // Continue with other teams even if one fails
             }
         }
         $tasks = $allTasks;
+
+        // If no tasks were found, check if it's due to API errors
+        if (count($tasks) === 0) {
+            \Log::warning('No tasks found from ClickUp', [
+                'teamIds' => $teamIds,
+                'assigneeId' => $assigneeId,
+                'assigneeEmail' => $assigneeEmail,
+                'userId' => $user->id,
+                'userEmail' => $user->email,
+            ]);
+        }
 
         $created = [];
         $updated = [];
@@ -193,6 +200,17 @@ class TaskController extends Controller
             $task = Task::firstOrNew(['clickup_task_id' => $taskId]);
             $wasCreated = !$task->exists;
 
+            // Skip time estimate fetching during bulk sync to avoid timeouts
+            // Estimates can be fetched later when viewing individual tasks
+            $estimatedTime = null;
+            if (data_get($t, 'time_estimate')) {
+                $estimatedTime = (int) data_get($t, 'time_estimate');
+            } elseif (data_get($t, 'time_estimates.total_estimate')) {
+                $estimatedTime = (int) data_get($t, 'time_estimates.total_estimate');
+            } elseif (data_get($t, 'time_estimates.total_estimated')) {
+                $estimatedTime = (int) data_get($t, 'time_estimates.total_estimated');
+            }
+
             $task->fill([
                 'user_id' => $user->id,
                 'title' => $displayTitle,
@@ -201,7 +219,7 @@ class TaskController extends Controller
                 'priority' => $priority,
                 'clickup_parent_id' => (string) (data_get($t, 'parent') ?: null),
                 'due_date' => $dueDate,
-                'estimated_time' => $clickUp->resolveTaskEstimate($t),
+                'estimated_time' => $estimatedTime,
             ]);
 
             $dirty = $task->isDirty();
@@ -227,9 +245,6 @@ class TaskController extends Controller
         $sources = [];
         foreach ($teamIds as $teamId) {
             $sources[] = 'Team ' . $teamId;
-        }
-        foreach ($spaceIds as $spaceId) {
-            $sources[] = 'Space ' . $spaceId;
         }
 
         $summary = [
