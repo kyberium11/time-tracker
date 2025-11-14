@@ -1726,7 +1726,8 @@ class AnalyticsController extends Controller
             if ($startDate && $endDate) {
                 // Use the provided date range and group by week
                 $start = \Carbon\Carbon::parse($startDate)->startOfWeek();
-                $end = \Carbon\Carbon::parse($endDate)->endOfWeek();
+                $endDateObj = \Carbon\Carbon::parse($endDate);
+                $end = $endDateObj->copy()->endOfWeek();
                 
                 $current = $start->copy();
                 while ($current <= $end) {
@@ -1734,8 +1735,8 @@ class AnalyticsController extends Controller
                     $weekEnd = $current->copy()->endOfWeek();
                     
                     // Don't go beyond the end date
-                    if ($weekStart > $end) break;
-                    if ($weekEnd > $end) $weekEnd = \Carbon\Carbon::parse($endDate);
+                    if ($weekStart > $endDateObj) break;
+                    if ($weekEnd > $endDateObj) $weekEnd = $endDateObj->copy();
                     
                     $weekTasksQuery = Task::whereNotNull('estimated_time');
                     
