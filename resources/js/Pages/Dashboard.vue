@@ -23,6 +23,7 @@ interface TaskItem {
     due_date?: string | null;
     clickup_task_id: string;
     estimated_time?: number | null; // in milliseconds
+    clickup_list_name?: string | null;
 }
 
 interface TimeEvent {
@@ -1396,6 +1397,7 @@ const formatTaskContent = (content: string | null | undefined) => {
                                 <thead class="bg-gray-50">
                                     <tr>
                                         <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Task</th>
+                                        <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Campaign</th>
                                         <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Status</th>
                                         <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Due Date</th>
                                         <th class="px-6 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Estimated Time</th>
@@ -1408,6 +1410,7 @@ const formatTaskContent = (content: string | null | undefined) => {
                                         <td class="whitespace-nowrap px-6 py-4 text-sm text-indigo-600">
                                             <button @click="openTaskDetails(t.id)" class="hover:underline">{{ t.title }}</button>
                                         </td>
+                                        <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-900">{{ t.clickup_list_name || '--' }}</td>
                                         <td class="whitespace-nowrap px-6 py-4 text-sm">
                                             <span 
                                                 v-if="isStatusPill(t.status)"

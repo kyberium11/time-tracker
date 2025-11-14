@@ -16,6 +16,8 @@ class Task extends Model
         'priority',
         'clickup_task_id',
         'clickup_parent_id',
+        'clickup_list_id',
+        'clickup_list_name',
         'due_date',
         'estimated_time',
     ];

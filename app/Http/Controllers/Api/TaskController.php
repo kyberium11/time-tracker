@@ -19,7 +19,7 @@ class TaskController extends Controller
     {
         $tasks = Task::where('user_id', Auth::id())
             ->orderBy('updated_at', 'desc')
-            ->get(['id', 'title', 'status', 'priority', 'due_date', 'clickup_task_id', 'estimated_time']);
+            ->get(['id', 'title', 'status', 'priority', 'due_date', 'clickup_task_id', 'estimated_time', 'clickup_list_name']);
 
         return response()->json($tasks);
     }
@@ -196,6 +196,10 @@ class TaskController extends Controller
                 ?: ''
             ) ?: null;
             $dueDate = ($ms = data_get($t, 'due_date')) ? Carbon::createFromTimestampMs((int) $ms) : null;
+            
+            // Extract list information from ClickUp task
+            $listId = (string) (data_get($t, 'list.id') ?? '');
+            $listName = (string) (data_get($t, 'list.name') ?? '');
 
             $task = Task::firstOrNew(['clickup_task_id' => $taskId]);
             $wasCreated = !$task->exists;
@@ -218,6 +222,8 @@ class TaskController extends Controller
                 'status' => (string) data_get($t, 'status.status'),
                 'priority' => $priority,
                 'clickup_parent_id' => (string) (data_get($t, 'parent') ?: null),
+                'clickup_list_id' => $listId ?: null,
+                'clickup_list_name' => $listName ?: null,
                 'due_date' => $dueDate,
                 'estimated_time' => $estimatedTime,
             ]);

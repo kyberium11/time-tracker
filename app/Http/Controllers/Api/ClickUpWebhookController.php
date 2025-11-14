@@ -155,6 +155,10 @@ class ClickUpWebhookController extends Controller
             $clickupUrl = (string) (data_get($task, 'url') ?: ('https://app.clickup.com/t/' . $taskId));
             $displayTitle = trim($clickupName . ' - ' . $clickupUrl);
 
+            // Extract list information from ClickUp task
+            $listId = (string) (data_get($task, 'list.id') ?? '');
+            $listName = (string) (data_get($task, 'list.name') ?? '');
+
             $local = Task::updateOrCreate(
                 ['clickup_task_id' => (string) data_get($task, 'id')],
                 [
@@ -169,6 +173,8 @@ class ClickUpWebhookController extends Controller
                         ?: null
                     ),
                     'clickup_parent_id' => (string) (data_get($task, 'parent') ?: null),
+                    'clickup_list_id' => $listId ?: null,
+                    'clickup_list_name' => $listName ?: null,
                     'due_date' => ($ms = data_get($task, 'due_date')) ? Carbon::createFromTimestampMs((int)$ms) : null,
                     'estimated_time' => $this->clickUp->resolveTaskEstimate($task),
                 ]
