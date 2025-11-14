@@ -64,6 +64,11 @@ Route::middleware('auth')->group(function () {
         ->middleware(['role:developer'])
         ->name('time-entries.index');
     
+    // Impersonation routes (admin and developer only)
+    Route::middleware(['role:admin,developer'])->group(function () {
+        Route::get('/impersonate', [App\Http\Controllers\ImpersonationController::class, 'index'])->name('impersonate.index');
+    });
+    
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');

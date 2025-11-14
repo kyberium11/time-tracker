@@ -98,6 +98,12 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::delete('/time-entries/{id}', [TimeEntryController::class, 'destroy']);
         Route::get('/tasks', [TaskController::class, 'index']);
     });
+
+    // Impersonation routes (admin and developer only)
+    Route::middleware(['role:admin,developer'])->prefix('impersonate')->group(function () {
+        Route::post('/start/{userId}', [App\Http\Controllers\ImpersonationController::class, 'start']);
+        Route::post('/stop', [App\Http\Controllers\ImpersonationController::class, 'stop']);
+    });
 });
 
 // ClickUp webhook endpoint (no auth; secured via signing secret)

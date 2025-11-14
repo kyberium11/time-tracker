@@ -86,6 +86,14 @@ const showingNavigationDropdown = ref(false);
                                 >
                                     Deploy
                                 </NavLink>
+                                
+                                <NavLink
+                                    v-if="$page.props.auth.user.role === 'admin' || $page.props.auth.user.role === 'developer'"
+                                    :href="route('impersonate.index')"
+                                    :active="route().current('impersonate.*')"
+                                >
+                                    Impersonate
+                                </NavLink>
                             </div>
                         </div>
 
@@ -241,6 +249,14 @@ const showingNavigationDropdown = ref(false);
                         >
                             Deploy
                         </ResponsiveNavLink>
+                        
+                        <ResponsiveNavLink
+                            v-if="$page.props.auth.user.role === 'admin' || $page.props.auth.user.role === 'developer'"
+                            :href="route('impersonate.index')"
+                            :active="route().current('impersonate.*')"
+                        >
+                            Impersonate
+                        </ResponsiveNavLink>
                     </div>
 
                     <!-- Responsive Settings Options -->
@@ -273,6 +289,43 @@ const showingNavigationDropdown = ref(false);
                     </div>
                 </div>
             </nav>
+
+            <!-- Impersonation Banner -->
+            <div
+                v-if="$page.props.impersonation && ($page.props.impersonation as any).isImpersonating"
+                class="bg-yellow-50 border-b border-yellow-200"
+            >
+                <div class="mx-auto max-w-7xl px-4 py-3 sm:px-6 lg:px-8">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center">
+                            <svg
+                                class="h-5 w-5 text-yellow-400 mr-2"
+                                fill="currentColor"
+                                viewBox="0 0 20 20"
+                            >
+                                <path
+                                    fill-rule="evenodd"
+                                    d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
+                                    clip-rule="evenodd"
+                                />
+                            </svg>
+                            <p class="text-sm text-yellow-700">
+                                <span class="font-semibold">Impersonating:</span> You are viewing as
+                                <span class="font-semibold">{{ $page.props.auth.user.name }}</span>
+                                <span v-if="($page.props.impersonation as any)?.originalUser">
+                                    (Original: {{ (($page.props.impersonation as any).originalUser as any).name }})
+                                </span>
+                            </p>
+                        </div>
+                        <a
+                            :href="route('impersonate.index')"
+                            class="text-sm font-medium text-yellow-700 hover:text-yellow-900 underline"
+                        >
+                            Stop Impersonating
+                        </a>
+                    </div>
+                </div>
+            </div>
 
             <!-- Page Heading -->
             <header
