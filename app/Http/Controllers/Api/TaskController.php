@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Task;
 use Illuminate\Support\Facades\Auth;
 use App\Services\ClickUpService;
+use App\Support\ClickUpConfig;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use App\Models\User;
@@ -109,17 +110,7 @@ class TaskController extends Controller
             return response()->json(['error' => 'Unauthorized'], 401);
         }
 
-        // Support multiple ClickUp team IDs via CLICKUP_TEAM_IDS (comma-separated) or single CLICKUP_TEAM_ID
-        $teamIdsEnv = (string) (env('CLICKUP_TEAM_IDS') ?? '');
-        $teamIdSingle = (string) (env('CLICKUP_TEAM_ID') ?? '');
-        $teamIds = [];
-        if ($teamIdsEnv !== '') {
-            $teamIds = array_values(array_filter(array_map(fn($s) => trim($s), explode(',', $teamIdsEnv)), fn($s) => $s !== ''));
-        }
-        if ($teamIdSingle !== '') {
-            $teamIds[] = $teamIdSingle;
-        }
-        $teamIds = array_values(array_unique($teamIds));
+        $teamIds = ClickUpConfig::teamIds();
         if (count($teamIds) === 0) {
             return response()->json(['error' => 'CLICKUP_TEAM_ID or CLICKUP_TEAM_IDS is not configured'], 400);
         }

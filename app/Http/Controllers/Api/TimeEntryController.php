@@ -6,10 +6,11 @@ use App\Http\Controllers\Controller;
 use App\Models\TimeEntry;
 use App\Models\Task;
 use App\Models\UserActivityLog;
+use App\Services\ClickUpService;
+use App\Support\ClickUpConfig;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Carbon\Carbon;
-use App\Services\ClickUpService;
 
 class TimeEntryController extends Controller
 {
@@ -408,8 +409,8 @@ class TimeEntryController extends Controller
         $this->logActivity('task_stop', "Stopped task #{$open->task_id} at {$open->clock_out}");
 
         // Optionally push native ClickUp time entries if explicitly enabled
-        $pushNative = filter_var(env('CLICKUP_PUSH_TIME_ENTRIES', false), FILTER_VALIDATE_BOOL);
-        $teamId = env('CLICKUP_TEAM_ID');
+        $pushNative = (bool) config('clickup.push_time_entries');
+        $teamId = ClickUpConfig::teamId();
         if ($pushNative && $teamId && $open->task && $open->task->clickup_task_id) {
             $startMs = Carbon::parse($open->clock_in)->getTimestampMs();
             $endMs = Carbon::parse($open->clock_out)->getTimestampMs();
@@ -453,9 +454,9 @@ class TimeEntryController extends Controller
                 ->whereBetween('date', [$weekStart->toDateString(), $weekEnd->toDateString()])
                 ->sum('total_hours');
 
-            $cfTotal = env('CLICKUP_CF_TOTAL_HOURS_ID');
-            $cfToday = env('CLICKUP_CF_TODAY_HOURS_ID');
-            $cfWeek = env('CLICKUP_CF_WEEK_HOURS_ID');
+            $cfTotal = config('clickup.custom_fields.total_hours');
+            $cfToday = config('clickup.custom_fields.today_hours');
+            $cfWeek = config('clickup.custom_fields.week_hours');
 
             if ($cfTotal) { $clickUp->updateTaskCustomField($clickupTaskId, (string) $cfTotal, round($totalHours, 2)); }
             if ($cfToday) { $clickUp->updateTaskCustomField($clickupTaskId, (string) $cfToday, round($todayHours, 2)); }
@@ -471,7 +472,7 @@ class TimeEntryController extends Controller
         }
 
         // Create a reporting row in the dedicated ClickUp List (integration table)
-        $reportListId = env('CLICKUP_REPORT_LIST_ID');
+        $reportListId = config('clickup.reporting.list_id');
         if ($reportListId) {
             $clickupTaskIdForUrl = (string) ($open->task?->clickup_task_id ?? '');
             $taskUrl = $clickupTaskIdForUrl ? ('https://app.clickup.com/t/' . $clickupTaskIdForUrl) : (Carbon::parse($open->date)->toDateString() . ' | Task #' . $open->task_id);
@@ -503,12 +504,12 @@ class TimeEntryController extends Controller
                 'Notes: ' . $notes,
             ];
             // Prepare custom field values (also used for create-time custom_fields)
-            $cfTaskId = env('CLICKUP_REPORT_CF_TASK_ID');
-            $cfUser = env('CLICKUP_REPORT_CF_USER');
-            $cfTimeIn = env('CLICKUP_REPORT_CF_TIME_IN');
-            $cfTimeOut = env('CLICKUP_REPORT_CF_TIME_OUT');
-            $cfTotalMins = env('CLICKUP_REPORT_CF_TOTAL_MINS');
-            $cfNotes = env('CLICKUP_REPORT_CF_NOTES');
+            $cfTaskId = config('clickup.report_custom_fields.task_id');
+            $cfUser = config('clickup.report_custom_fields.user');
+            $cfTimeIn = config('clickup.report_custom_fields.time_in');
+            $cfTimeOut = config('clickup.report_custom_fields.time_out');
+            $cfTotalMins = config('clickup.report_custom_fields.total_mins');
+            $cfNotes = config('clickup.report_custom_fields.notes');
             
             // For Date/Time fields, use Unix timestamp in milliseconds; for text fields, use formatted string in Manila timezone
             // Format: "Nov 10,2025 10:37:00" (no space after comma)
@@ -722,7 +723,7 @@ class TimeEntryController extends Controller
         string $localTaskId,
         Carbon $entryDate
     ): void {
-        $reportListId = env('CLICKUP_REPORT_LIST_ID');
+        $reportListId = config('clickup.reporting.list_id');
         if (!$reportListId) { return; }
 
         // Calculate duration and values first
@@ -748,12 +749,12 @@ class TimeEntryController extends Controller
         ];
 
         // Prepare custom field values
-        $cfTaskId = env('CLICKUP_REPORT_CF_TASK_ID');
-        $cfUser = env('CLICKUP_REPORT_CF_USER');
-        $cfTimeIn = env('CLICKUP_REPORT_CF_TIME_IN');
-        $cfTimeOut = env('CLICKUP_REPORT_CF_TIME_OUT');
-        $cfTotalMins = env('CLICKUP_REPORT_CF_TOTAL_MINS');
-        $cfNotes = env('CLICKUP_REPORT_CF_NOTES');
+        $cfTaskId = config('clickup.report_custom_fields.task_id');
+        $cfUser = config('clickup.report_custom_fields.user');
+        $cfTimeIn = config('clickup.report_custom_fields.time_in');
+        $cfTimeOut = config('clickup.report_custom_fields.time_out');
+        $cfTotalMins = config('clickup.report_custom_fields.total_mins');
+        $cfNotes = config('clickup.report_custom_fields.notes');
 
         $clickupTaskId = (string) $relatedTaskId;
         
@@ -993,10 +994,10 @@ class TimeEntryController extends Controller
     private function syncTimeEntryToClickUp(TimeEntry $entry, string $action): void
     {
         $clickUp = new ClickUpService(
-            env('CLICKUP_API_TOKEN'),
-            env('CLICKUP_SIGNING_SECRET')
+            config('clickup.api_token'),
+            config('clickup.signing_secret')
         );
-        $teamId = env('CLICKUP_TEAM_ID');
+        $teamId = ClickUpConfig::teamId();
 
         if (!$teamId || !$entry->task || !$entry->task->clickup_task_id) {
             return;
@@ -1015,9 +1016,9 @@ class TimeEntryController extends Controller
             ->whereBetween('date', [$weekStart->toDateString(), $weekEnd->toDateString()])
             ->sum('total_hours');
 
-        $cfTotal = env('CLICKUP_CF_TOTAL_HOURS_ID');
-        $cfToday = env('CLICKUP_CF_TODAY_HOURS_ID');
-        $cfWeek = env('CLICKUP_CF_WEEK_HOURS_ID');
+        $cfTotal = config('clickup.custom_fields.total_hours');
+        $cfToday = config('clickup.custom_fields.today_hours');
+        $cfWeek = config('clickup.custom_fields.week_hours');
 
         if ($cfTotal) {
             $clickUp->updateTaskCustomField($clickupTaskId, (string) $cfTotal, round($totalHours, 2));
@@ -1054,7 +1055,7 @@ class TimeEntryController extends Controller
      */
     private function updateOrCreateReportListEntry(ClickUpService $clickUp, TimeEntry $entry): void
     {
-        $reportListId = env('CLICKUP_REPORT_LIST_ID');
+        $reportListId = config('clickup.reporting.list_id');
         if (!$reportListId) {
             return;
         }
@@ -1074,12 +1075,12 @@ class TimeEntryController extends Controller
         $timeOutFormatted = $endManila->format('M d,Y H:i:s');
         $notes = "Time Tracked: {$durationFormatted} by {$user->name} ({$timeInFormatted} - {$timeOutFormatted})";
 
-        $cfTaskId = env('CLICKUP_REPORT_CF_TASK_ID');
-        $cfUser = env('CLICKUP_REPORT_CF_USER');
-        $cfTimeIn = env('CLICKUP_REPORT_CF_TIME_IN');
-        $cfTimeOut = env('CLICKUP_REPORT_CF_TIME_OUT');
-        $cfTotalMins = env('CLICKUP_REPORT_CF_TOTAL_MINS');
-        $cfNotes = env('CLICKUP_REPORT_CF_NOTES');
+        $cfTaskId = config('clickup.report_custom_fields.task_id');
+        $cfUser = config('clickup.report_custom_fields.user');
+        $cfTimeIn = config('clickup.report_custom_fields.time_in');
+        $cfTimeOut = config('clickup.report_custom_fields.time_out');
+        $cfTotalMins = config('clickup.report_custom_fields.total_mins');
+        $cfNotes = config('clickup.report_custom_fields.notes');
 
         $timeInMs = $start->getTimestampMs();
         $timeOutMs = $end->getTimestampMs();
@@ -1158,8 +1159,8 @@ class TimeEntryController extends Controller
     {
         try {
             $tasks = $clickUp->listListTasks($reportListId);
-            $cfTaskId = env('CLICKUP_REPORT_CF_TASK_ID');
-            $cfUser = env('CLICKUP_REPORT_CF_USER');
+            $cfTaskId = config('clickup.report_custom_fields.task_id');
+            $cfUser = config('clickup.report_custom_fields.user');
             $clickupTaskId = (string) ($entry->task?->clickup_task_id ?? '');
             $userName = $entry->user->name ?? '';
 
@@ -1214,7 +1215,7 @@ class TimeEntryController extends Controller
      */
     private function createReportListEntry(ClickUpService $clickUp, TimeEntry $entry): void
     {
-        $reportListId = env('CLICKUP_REPORT_LIST_ID');
+        $reportListId = config('clickup.reporting.list_id');
         if (!$reportListId) {
             return;
         }
@@ -1234,12 +1235,12 @@ class TimeEntryController extends Controller
         $timeOutFormatted = $endManila->format('M d,Y H:i:s');
         $notes = "Time Tracked: {$durationFormatted} by {$user->name} ({$timeInFormatted} - {$timeOutFormatted})";
 
-        $cfTaskId = env('CLICKUP_REPORT_CF_TASK_ID');
-        $cfUser = env('CLICKUP_REPORT_CF_USER');
-        $cfTimeIn = env('CLICKUP_REPORT_CF_TIME_IN');
-        $cfTimeOut = env('CLICKUP_REPORT_CF_TIME_OUT');
-        $cfTotalMins = env('CLICKUP_REPORT_CF_TOTAL_MINS');
-        $cfNotes = env('CLICKUP_REPORT_CF_NOTES');
+        $cfTaskId = config('clickup.report_custom_fields.task_id');
+        $cfUser = config('clickup.report_custom_fields.user');
+        $cfTimeIn = config('clickup.report_custom_fields.time_in');
+        $cfTimeOut = config('clickup.report_custom_fields.time_out');
+        $cfTotalMins = config('clickup.report_custom_fields.total_mins');
+        $cfNotes = config('clickup.report_custom_fields.notes');
 
         $timeInMs = $start->getTimestampMs();
         $timeOutMs = $end->getTimestampMs();
@@ -1325,7 +1326,7 @@ class TimeEntryController extends Controller
      */
     private function deleteReportListEntry(ClickUpService $clickUp, TimeEntry $entry): void
     {
-        $reportListId = env('CLICKUP_REPORT_LIST_ID');
+        $reportListId = config('clickup.reporting.list_id');
         if (!$reportListId) {
             return;
         }

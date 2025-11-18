@@ -17,8 +17,8 @@ class AppServiceProvider extends ServiceProvider
     {
         $this->app->singleton(ClickUpService::class, function () {
             return new ClickUpService(
-                config('services.clickup.api_token'),
-                config('services.clickup.signing_secret')
+                config('clickup.api_token'),
+                config('clickup.signing_secret')
             );
         });
     }

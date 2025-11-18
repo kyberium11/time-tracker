@@ -24,10 +24,10 @@ class ClickUpWebhookController extends Controller
             $sig = $request->header('x-signature') ?? $request->header('X-Signature');
 
             // Optional signature verification if configured
-            if (!empty(config('services.clickup.signing_secret'))) {
+            if (!empty(config('clickup.signing_secret'))) {
                 if (!$this->clickUp->verifySignature($raw, $sig)) {
                     // If allowed (e.g. local dev), log and continue instead of rejecting
-                    if (env('CLICKUP_ALLOW_UNVERIFIED', app()->environment('local'))) {
+                    if (config('clickup.allow_unverified')) {
                         ClickUpWebhookLog::create([
                             'event' => data_get(json_decode($raw, true), 'event'),
                             'task_id' => data_get(json_decode($raw, true), 'task.id')

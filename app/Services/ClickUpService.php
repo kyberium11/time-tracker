@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Support\ClickUpConfig;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -40,7 +41,7 @@ class ClickUpService
         $base = 'https://api.clickup.com/api/v2/task/' . $taskId;
 
         // Prefer using custom_task_ids for short IDs (alpha-numeric) and provide team_id
-        $teamId = env('CLICKUP_TEAM_ID');
+        $teamId = ClickUpConfig::teamId();
         $query = [];
         if ($teamId) {
             $query['team_id'] = $teamId;
@@ -242,7 +243,7 @@ class ClickUpService
             'Accept' => 'application/json',
         ];
         $base = 'https://api.clickup.com/api/v2/task/' . $taskId;
-        $teamId = env('CLICKUP_TEAM_ID');
+        $teamId = ClickUpConfig::teamId();
         $query = [ 'custom_task_ids' => 'true' ];
         if ($teamId) { $query['team_id'] = $teamId; }
 
@@ -277,7 +278,7 @@ class ClickUpService
             'Accept' => 'application/json',
         ];
         $base = 'https://api.clickup.com/api/v2/task/' . $taskId . '/field/' . $fieldId;
-        $teamId = env('CLICKUP_TEAM_ID');
+        $teamId = ClickUpConfig::teamId();
         // If $taskId is numeric, don't use custom_task_ids flag
         // For alphanumeric task IDs (custom IDs), we need custom_task_ids=true and team_id
         $useCustomIds = !ctype_digit($taskId);
@@ -337,7 +338,7 @@ class ClickUpService
             'Accept' => 'application/json',
         ];
         $base = 'https://api.clickup.com/api/v2/task/' . $taskId . '/comment';
-        $teamId = env('CLICKUP_TEAM_ID');
+        $teamId = ClickUpConfig::teamId();
         $useCustomIds = !ctype_digit($taskId);
         $query = [];
         if ($useCustomIds) { $query['custom_task_ids'] = 'true'; }
@@ -753,7 +754,7 @@ class ClickUpService
             'Accept' => 'application/json',
         ];
         $base = 'https://api.clickup.com/api/v2/task/' . $taskId;
-        $teamId = env('CLICKUP_TEAM_ID');
+        $teamId = ClickUpConfig::teamId();
         $useCustomIds = !ctype_digit($taskId);
         $query = [];
         if ($useCustomIds) {

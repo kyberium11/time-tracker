@@ -2,6 +2,7 @@
 
 namespace App\Console\Commands;
 
+use App\Support\ClickUpConfig;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Http;
 
@@ -13,15 +14,15 @@ class CreateClickUpWebhook extends Command
     public function handle(): int
     {
         $apiToken = $this->option('token')
-            ?: (config('services.clickup.api_token') ?: (env('CLICKUP_API_TOKEN') ?: env('CLICKUP_TOKEN')));
+            ?: config('clickup.api_token');
         if (!$apiToken) {
             $this->error('CLICKUP_API_TOKEN not set');
             return self::FAILURE;
         }
 
         $endpoint = $this->argument('endpoint') ?: rtrim(config('app.url'), '/') . '/api/integrations/clickup/webhook';
-        $teamId = $this->option('team_id') ?: env('CLICKUP_TEAM_ID');
-        $spaceId = $this->option('space_id') ?: env('CLICKUP_SPACE_ID');
+        $teamId = $this->option('team_id') ?: ClickUpConfig::teamId();
+        $spaceId = $this->option('space_id') ?: config('clickup.space_id');
         $target = $teamId ? ["type" => "team", "id" => $teamId] : ($spaceId ? ["type" => "space", "id" => $spaceId] : null);
         if (!$target) {
             $this->error('Provide --team_id/CLICKUP_TEAM_ID (recommended) or --space_id/CLICKUP_SPACE_ID');

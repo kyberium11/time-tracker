@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\Rules\Password;
 use App\Services\ClickUpService;
+use App\Support\ClickUpConfig;
 use Carbon\Carbon;
 
 class UserManagementController extends Controller
@@ -180,8 +181,8 @@ class UserManagementController extends Controller
     {
         $user = User::findOrFail($id);
 
-        $teamId = (string) (env('CLICKUP_TEAM_ID') ?? '');
-        if ($teamId === '') {
+        $teamId = ClickUpConfig::teamId();
+        if (!$teamId) {
             return response()->json(['error' => 'CLICKUP_TEAM_ID is not configured'], 400);
         }
 
