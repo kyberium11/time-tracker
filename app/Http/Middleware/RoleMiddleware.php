@@ -40,16 +40,24 @@ class RoleMiddleware
             }
         }
 
+        $hasRole = in_array($userRole, $allowedRoles);
+
+        // Allow access if the original impersonating user had the required role
+        if (!$hasRole && $request->session()->has('impersonating_original_user')) {
+            $original = $request->session()->get('impersonating_original_user');
+            $hasRole = isset($original['role']) && in_array($original['role'], $allowedRoles);
+        }
+
         // Log for debugging
         \Log::info('RoleMiddleware check', [
             'user_role' => $userRole,
             'allowed_roles' => $allowedRoles,
             'url' => $request->url(),
-            'passed' => in_array($userRole, $allowedRoles)
+            'passed' => $hasRole
         ]);
 
         // Check if user has any of the required roles
-        if (!in_array($userRole, $allowedRoles)) {
+        if (!$hasRole) {
             return response()->json([
                 'message' => 'Unauthorized. Required role: ' . implode(',', $allowedRoles),
                 'user_role' => $userRole,
