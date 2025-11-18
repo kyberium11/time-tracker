@@ -900,7 +900,7 @@ class AnalyticsController extends Controller
             }
             
             $userIds = User::where('team_id', $user->managedTeam->id)
-                ->where('role', 'employee')
+                ->whereIn('role', ['employee', 'developer'])
                 ->pluck('id')
                 ->toArray();
             $query->whereIn('user_id', $userIds);
@@ -1015,7 +1015,7 @@ class AnalyticsController extends Controller
                 return response()->json([]);
             }
             
-            $users = User::where('role', 'employee')
+            $users = User::whereIn('role', ['employee', 'developer'])
                 ->where('team_id', $user->managedTeam->id)
                 ->get(['id', 'name', 'email']);
         } else {
