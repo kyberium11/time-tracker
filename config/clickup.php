@@ -5,13 +5,14 @@ return [
     'signing_secret' => env('CLICKUP_SIGNING_SECRET'),
 
     'team_id' => env('CLICKUP_TEAM_ID'),
-    'team_ids' => array_values(array_filter(array_map(static function ($value) {
-        return trim((string) $value);
-    }, explode(',', env('CLICKUP_TEAM_IDS', ''))))),
+    'team_ids' => array_values(array_filter(array_map(
+        static fn($value) => trim((string) $value),
+        explode(',', (string) env('CLICKUP_TEAM_IDS', ''))
+    ))),
     'space_id' => env('CLICKUP_SPACE_ID'),
 
-    'allow_unverified' => env('CLICKUP_ALLOW_UNVERIFIED', app()->environment('local')),
-    'push_time_entries' => filter_var(env('CLICKUP_PUSH_TIME_ENTRIES', false), FILTER_VALIDATE_BOOL),
+    'allow_unverified' => env('CLICKUP_ALLOW_UNVERIFIED', env('APP_ENV', 'production') === 'local'),
+    'push_time_entries' => (bool) env('CLICKUP_PUSH_TIME_ENTRIES', false),
 
     'reporting' => [
         'list_id' => env('CLICKUP_REPORT_LIST_ID'),
