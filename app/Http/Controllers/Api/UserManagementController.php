@@ -3,11 +3,14 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Mail\NewUserCredentialsMail;
 use App\Models\User;
 use App\Models\Team;
 use App\Models\Task;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\Rules\Password;
 use App\Services\ClickUpService;
 use Carbon\Carbon;
@@ -49,16 +52,20 @@ class UserManagementController extends Controller
             'clickup_user_id' => 'nullable|string|max:255|unique:users,clickup_user_id',
         ]);
 
+        $plainPassword = $validated['password'];
+
         $user = User::create([
             'name' => $validated['name'],
             'email' => $validated['email'],
-            'password' => Hash::make($validated['password']),
+            'password' => Hash::make($plainPassword),
             'role' => $validated['role'],
             'team_id' => $validated['team_id'] ?? null,
             'shift_start' => $validated['shift_start'] ?? null,
             'shift_end' => $validated['shift_end'] ?? null,
             'clickup_user_id' => $validated['clickup_user_id'] ?? null,
         ]);
+
+        $this->sendWelcomeEmail($user, $plainPassword);
 
         return response()->json($user, 201);
     }
@@ -247,5 +254,23 @@ class UserManagementController extends Controller
         }
 
         return false;
+    }
+
+    /**
+     * Send welcome email with credentials.
+     */
+    protected function sendWelcomeEmail(User $user, string $plainPassword): void
+    {
+        try {
+            Mail::to($user->email)->send(
+                new NewUserCredentialsMail($user->name, $user->email, $plainPassword)
+            );
+        } catch (\Throwable $e) {
+            Log::error('Failed to send new user credentials email', [
+                'user_id' => $user->id,
+                'email' => $user->email,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 }
