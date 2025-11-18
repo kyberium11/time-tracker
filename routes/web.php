@@ -66,7 +66,9 @@ Route::middleware('auth')->group(function () {
     
     // Impersonation routes (admin and developer only)
     Route::middleware(['role:admin,developer'])->group(function () {
-        Route::get('/impersonate', [App\Http\Controllers\ImpersonationController::class, 'index'])->name('impersonate.index');
+    Route::get('/impersonate', [App\Http\Controllers\ImpersonationController::class, 'index'])
+        ->middleware('role:admin,developer')
+        ->name('impersonate.index');
     });
     
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
