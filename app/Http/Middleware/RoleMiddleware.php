@@ -13,14 +13,16 @@ class RoleMiddleware
      *
      * @param  \Closure(\Illuminate\Http\Request): (\Symfony\Component\HttpFoundation\Response)  $next
      */
-    public function handle(Request $request, Closure $next, string $roles): Response
+    public function handle(Request $request, Closure $next, string ...$roles): Response
     {
         if (!$request->user()) {
             return response()->json(['message' => 'Unauthenticated'], 401);
         }
 
         $userRole = $request->user()->role;
-        $allowedRoles = array_map('trim', explode(',', $roles));
+        // Laravel passes middleware parameters as separate arguments, so:
+        // role:admin,manager becomes ['admin', 'manager'] here.
+        $allowedRoles = array_map('trim', $roles);
 
         // Developer role has admin+ access - allow developer to access admin, manager, and developer routes
         if ($userRole === 'developer') {
@@ -49,7 +51,7 @@ class RoleMiddleware
         // Check if user has any of the required roles
         if (!in_array($userRole, $allowedRoles)) {
             return response()->json([
-                'message' => 'Unauthorized. Required role: ' . $roles,
+                'message' => 'Unauthorized. Required role: ' . implode(',', $allowedRoles),
                 'user_role' => $userRole,
                 'allowed_roles' => $allowedRoles
             ], 403);
