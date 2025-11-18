@@ -61,7 +61,7 @@ class ImpersonationController extends Controller
 
         // Log in as the target user
         Auth::guard('web')->login($targetUser);
-        $request->session()->migrate(true);
+        $request->session()->regenerate();
 
         return response()->json([
             'success' => true,
@@ -89,7 +89,7 @@ class ImpersonationController extends Controller
 
         // Log back in as original user
         Auth::guard('web')->login($originalUser);
-        request()->session()->migrate(true);
+        request()->session()->regenerate();
 
         // Clear impersonation session data
         Session::forget('impersonating_user_id');
