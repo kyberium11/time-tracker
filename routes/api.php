@@ -99,9 +99,10 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/tasks', [TaskController::class, 'index']);
     });
 
-    // Impersonation routes (admin and developer only)
-    Route::middleware(['role:admin,developer'])->prefix('impersonate')->group(function () {
-        Route::post('/start/{userId}', [App\Http\Controllers\ImpersonationController::class, 'start']);
+    // Impersonation routes
+    Route::prefix('impersonate')->group(function () {
+        Route::middleware(['role:admin,developer'])
+            ->post('/start/{userId}', [App\Http\Controllers\ImpersonationController::class, 'start']);
         Route::post('/stop', [App\Http\Controllers\ImpersonationController::class, 'stop']);
     });
 });
