@@ -4,6 +4,12 @@ import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head } from '@inertiajs/vue3';
 import api from '@/api';
 
+interface ShiftScheduleEntry {
+    day_of_week: number;
+    start_time: string;
+    end_time: string;
+}
+
 interface Team {
     id: number;
     name: string;
@@ -20,6 +26,7 @@ interface Team {
         email: string;
         shift_start: string | null;
         shift_end: string | null;
+        shift_schedule?: ShiftScheduleEntry[];
     }>;
 }
 
@@ -53,6 +60,18 @@ const formData = ref({
 const memberFormData = ref({
     selectedMembers: [] as number[],
 });
+
+const dayOptions = [
+    { label: 'Sunday', value: 0 },
+    { label: 'Monday', value: 1 },
+    { label: 'Tuesday', value: 2 },
+    { label: 'Wednesday', value: 3 },
+    { label: 'Thursday', value: 4 },
+    { label: 'Friday', value: 5 },
+    { label: 'Saturday', value: 6 },
+];
+
+const dayLabel = (value: number) => dayOptions.find((d) => d.value === value)?.label ?? 'Unknown';
 
 onMounted(() => {
     fetchTeams();
@@ -263,8 +282,18 @@ const toggleMember = (userId: number) => {
                                             <span class="font-medium text-gray-900">{{ member.name }}</span>
                                             <span class="text-gray-500 ml-2">({{ member.email }})</span>
                                         </div>
-                                        <div v-if="member.shift_start && member.shift_end" class="text-xs text-gray-600">
-                                            Shift: {{ member.shift_start }} - {{ member.shift_end }}
+                                        <div class="text-right text-xs text-gray-600">
+                                            <template v-if="member.shift_schedule?.length">
+                                                <div v-for="entry in member.shift_schedule" :key="`${member.id}-${entry.day_of_week}`">
+                                                    {{ dayLabel(entry.day_of_week) }}: {{ entry.start_time }} - {{ entry.end_time }}
+                                                </div>
+                                            </template>
+                                            <template v-else-if="member.shift_start && member.shift_end">
+                                                Default: {{ member.shift_start }} - {{ member.shift_end }}
+                                            </template>
+                                            <template v-else>
+                                                Shift not set
+                                            </template>
                                         </div>
                                     </div>
                                 </div>

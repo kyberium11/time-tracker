@@ -7,6 +7,7 @@ use App\Models\Task;
 use App\Models\TimeEntry;
 use App\Models\User;
 use App\Models\UserActivityLog;
+use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -536,6 +537,50 @@ class AnalyticsController extends Controller
         return (float) $builder->sum(DB::raw('COALESCE(total_hours, 0)'));
     }
 
+    private function resolveShiftWindow(User $user, $referenceDate): ?array
+    {
+        $user->loadMissing('shiftSchedules');
+        $date = $referenceDate ? Carbon::parse($referenceDate) : now();
+
+        $schedule = $user->shiftSchedules->firstWhere('day_of_week', $date->dayOfWeek);
+
+        if ($schedule) {
+            return $this->buildShiftWindowFromTimes($date, $schedule->start_time, $schedule->end_time);
+        }
+
+        if ($user->shift_start && $user->shift_end) {
+            return $this->buildShiftWindowFromTimes($date, $user->shift_start, $user->shift_end);
+        }
+
+        return null;
+    }
+
+    private function buildShiftWindowFromTimes(Carbon $date, string $start, string $end): array
+    {
+        $startCarbon = Carbon::parse($date->copy()->format('Y-m-d') . ' ' . $start);
+        $endCarbon = Carbon::parse($date->copy()->format('Y-m-d') . ' ' . $end);
+
+        if ($endCarbon->lessThanOrEqualTo($startCarbon)) {
+            $endCarbon->addDay();
+        }
+
+        return [
+            'start' => $startCarbon,
+            'end' => $endCarbon,
+            'raw_start' => $start,
+            'raw_end' => $end,
+        ];
+    }
+
+    private function getShiftHours(?array $window): float
+    {
+        if (!$window) {
+            return 8.0;
+        }
+
+        return $window['end']->diffInMinutes($window['start']) / 60;
+    }
+
 
     /**
      * Get analytics data.
@@ -715,11 +760,11 @@ class AnalyticsController extends Controller
         // Determine status
         $status = 'No Entry';
         if ($firstIn && $lastOut) {
-            $shiftHours = $user->shift_start && $user->shift_end ? 
-                (\Carbon\Carbon::parse($user->shift_end)->diffInSeconds(\Carbon\Carbon::parse($user->shift_start)) / 3600) : 8;
+            $shiftWindow = $this->resolveShiftWindow($user, $firstIn);
+            $shiftHours = $this->getShiftHours($shiftWindow);
             
             $clockInTime = $firstIn->format('H:i');
-            $expectedStart = $user->shift_start ? \Carbon\Carbon::parse($user->shift_start)->format('H:i') : '09:00';
+            $expectedStart = $shiftWindow ? $shiftWindow['start']->format('H:i') : '09:00';
             $isLate = $clockInTime > $expectedStart;
             $hasEnoughHours = ($workSeconds / 3600) >= ($shiftHours - 0.5);
             
@@ -733,8 +778,8 @@ class AnalyticsController extends Controller
         }
         
         // Calculate overtime
-        $shiftHours = $user->shift_start && $user->shift_end ? 
-            (\Carbon\Carbon::parse($user->shift_end)->diffInSeconds(\Carbon\Carbon::parse($user->shift_start)) / 3600) : 8;
+        $shiftWindow = $this->resolveShiftWindow($user, $firstIn);
+        $shiftHours = $this->getShiftHours($shiftWindow);
         $overtimeSeconds = max(0, $workSeconds - ($shiftHours * 3600));
 
         return response()->json([
@@ -929,26 +974,30 @@ class AnalyticsController extends Controller
 
         // Filter by status - calculate based on user's shift time
         if ($request->has('status') && $request->status) {
-            $entries = $query->get();
+            $entries = $query->with(['user.shiftSchedules'])->get();
             $filtered = $entries->filter(function($entry) use ($request) {
-                if (!$entry->user->shift_start || !$entry->user->shift_end) {
+                $shiftWindow = $this->resolveShiftWindow($entry->user, $entry->date);
+                if (!$shiftWindow) {
                     return false;
                 }
                 
-                $shiftStart = strtotime($entry->user->shift_start);
-                $shiftEnd = strtotime($entry->user->shift_end);
-                $clockIn = strtotime($entry->clock_in);
-                $shiftHours = ($shiftEnd - $shiftStart) / 3600;
+                $clockIn = $entry->clock_in ? Carbon::parse($entry->clock_in) : null;
+                if (!$clockIn) {
+                    return false;
+                }
+                
+                $shiftHours = $this->getShiftHours($shiftWindow);
                 
                 switch ($request->status) {
                     case 'late':
-                        return $clockIn > $shiftStart + 300; // 5 minutes late
+                        return $clockIn->greaterThan($shiftWindow['start']->copy()->addMinutes(5));
                     case 'undertime':
                         return $entry->total_hours < $shiftHours;
                     case 'overtime':
                         return $entry->total_hours > $shiftHours;
                     case 'perfect':
-                        return $clockIn <= $shiftStart + 300 && $entry->total_hours >= $shiftHours - 0.5;
+                        return $clockIn->lessThanOrEqualTo($shiftWindow['start']->copy()->addMinutes(5))
+                            && $entry->total_hours >= $shiftHours - 0.5;
                     default:
                         return true;
                 }

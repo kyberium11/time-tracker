@@ -1,8 +1,18 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
+import { ref, onMounted } from 'vue';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head } from '@inertiajs/vue3';
 import api from '@/api';
+
+interface ShiftScheduleEntry {
+    day_of_week: number;
+    start_time: string;
+    end_time: string;
+}
+
+interface ShiftScheduleFormEntry extends ShiftScheduleEntry {
+    enabled: boolean;
+}
 
 interface User {
     id: number;
@@ -16,6 +26,7 @@ interface User {
     } | null;
     shift_start: string | null;
     shift_end: string | null;
+    shift_schedule?: ShiftScheduleEntry[];
 }
 
 const users = ref<User[]>([]);
@@ -33,6 +44,26 @@ const formData = ref({
     shift_end: '',
     clickup_user_id: '' as string | null | '',
 });
+
+const dayOptions = [
+    { label: 'Sunday', value: 0 },
+    { label: 'Monday', value: 1 },
+    { label: 'Tuesday', value: 2 },
+    { label: 'Wednesday', value: 3 },
+    { label: 'Thursday', value: 4 },
+    { label: 'Friday', value: 5 },
+    { label: 'Saturday', value: 6 },
+];
+
+const createDefaultShiftSchedule = (): ShiftScheduleFormEntry[] =>
+    dayOptions.map((day) => ({
+        day_of_week: day.value,
+        start_time: '',
+        end_time: '',
+        enabled: false,
+    }));
+
+const shiftScheduleForm = ref<ShiftScheduleFormEntry[]>(createDefaultShiftSchedule());
 
 const teams = ref<Array<{ id: number; name: string }>>([]);
 
@@ -59,6 +90,8 @@ const fetchUsers = async () => {
 };
 
 const openEditModal = (user?: User) => {
+    shiftScheduleForm.value = createDefaultShiftSchedule();
+
     if (user) {
         editingUser.value = user;
         formData.value = {
@@ -72,6 +105,17 @@ const openEditModal = (user?: User) => {
             shift_end: user.shift_end || '',
             clickup_user_id: user.clickup_user_id || '',
         };
+
+        if (user.shift_schedule?.length) {
+            user.shift_schedule.forEach((entry) => {
+                const target = shiftScheduleForm.value.find((d) => d.day_of_week === entry.day_of_week);
+                if (target) {
+                    target.enabled = true;
+                    target.start_time = entry.start_time;
+                    target.end_time = entry.end_time;
+                }
+            });
+        }
     } else {
         editingUser.value = null;
         formData.value = {
@@ -92,15 +136,30 @@ const openEditModal = (user?: User) => {
 const closeModal = () => {
     showModal.value = false;
     editingUser.value = null;
+    shiftScheduleForm.value = createDefaultShiftSchedule();
 };
+
+const buildShiftSchedulePayload = () =>
+    shiftScheduleForm.value
+        .filter((entry) => entry.enabled && entry.start_time && entry.end_time)
+        .map((entry) => ({
+            day_of_week: entry.day_of_week,
+            start_time: entry.start_time,
+            end_time: entry.end_time,
+        }));
 
 const saveUser = async () => {
     loading.value = true;
     try {
+        const payload = {
+            ...formData.value,
+            shift_schedule: buildShiftSchedulePayload(),
+        };
+
         if (editingUser.value) {
-            await api.put(`/admin/users/${editingUser.value.id}`, formData.value);
+            await api.put(`/admin/users/${editingUser.value.id}`, payload);
         } else {
-            await api.post('/admin/users', formData.value);
+            await api.post('/admin/users', payload);
         }
         await fetchUsers();
         closeModal();
@@ -151,6 +210,8 @@ onMounted(() => {
     fetchUsers();
     fetchTeams();
 });
+
+const dayLabel = (value: number) => dayOptions.find((d) => d.value === value)?.label ?? 'Unknown';
 </script>
 
 <template>
@@ -231,10 +292,21 @@ onMounted(() => {
                                     {{ user.team?.name || 'No team' }}
                                 </td>
                                 <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500">
-                                    <span v-if="user.shift_start && user.shift_end">
-                                        {{ user.shift_start }} - {{ user.shift_end }}
-                                    </span>
-                                    <span v-else class="text-gray-400 italic">Not set</span>
+                                    <div v-if="user.shift_schedule?.length" class="space-y-1 text-xs text-gray-700">
+                                        <div
+                                            v-for="entry in user.shift_schedule"
+                                            :key="`${user.id}-${entry.day_of_week}`"
+                                        >
+                                            {{ dayLabel(entry.day_of_week) }}:
+                                            {{ entry.start_time }} - {{ entry.end_time }}
+                                        </div>
+                                    </div>
+                                    <div v-else class="text-xs text-gray-400 italic">
+                                        <span v-if="user.shift_start && user.shift_end">
+                                            {{ user.shift_start }} - {{ user.shift_end }}
+                                        </span>
+                                        <span v-else>Not set</span>
+                                    </div>
                                 </td>
                                 <td class="whitespace-nowrap px-6 py-4 text-sm font-medium">
                                     <button
@@ -359,6 +431,58 @@ onMounted(() => {
                                         type="time"
                                         class="mt-1 block w-full rounded-md border-gray-300 shadow-sm"
                                     />
+                                </div>
+                            </div>
+
+                            <div class="mb-6">
+                                <div class="flex items-center justify-between">
+                                    <div>
+                                        <p class="text-sm font-medium text-gray-700">Weekly Shift Schedule</p>
+                                        <p class="text-xs text-gray-500">
+                                            Configure day-specific hours. Unchecked days are treated as off.
+                                        </p>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        class="text-xs text-indigo-600 hover:text-indigo-800"
+                                        @click="shiftScheduleForm = createDefaultShiftSchedule()"
+                                    >
+                                        Clear schedule
+                                    </button>
+                                </div>
+                                <div class="mt-3 divide-y divide-gray-100 rounded-md border border-gray-200">
+                                    <div
+                                        v-for="day in shiftScheduleForm"
+                                        :key="day.day_of_week"
+                                        class="flex flex-wrap items-center gap-4 px-4 py-3"
+                                    >
+                                        <div class="w-28 text-sm font-medium text-gray-800">
+                                            {{ dayLabel(day.day_of_week) }}
+                                        </div>
+                                        <label class="flex items-center gap-2 text-sm text-gray-700">
+                                            <input
+                                                type="checkbox"
+                                                v-model="day.enabled"
+                                                class="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                                            />
+                                            Enable
+                                        </label>
+                                        <div class="flex items-center gap-2">
+                                            <input
+                                                type="time"
+                                                v-model="day.start_time"
+                                                :disabled="!day.enabled"
+                                                class="block rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm disabled:bg-gray-100"
+                                            />
+                                            <span class="text-sm text-gray-500">to</span>
+                                            <input
+                                                type="time"
+                                                v-model="day.end_time"
+                                                :disabled="!day.enabled"
+                                                class="block rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm disabled:bg-gray-100"
+                                            />
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
 

@@ -14,7 +14,20 @@ class TeamController extends Controller
      */
     public function index()
     {
-        $teams = Team::with(['manager', 'members'])->get();
+        $teams = Team::with(['manager', 'members.shiftSchedules'])->get();
+        $teams->each(function ($team) {
+            $team->members->transform(function ($member) {
+                $member->setAttribute('shift_schedule', $member->shiftSchedules->map(function ($schedule) {
+                    return [
+                        'day_of_week' => $schedule->day_of_week,
+                        'start_time' => substr($schedule->start_time, 0, 5),
+                        'end_time' => substr($schedule->end_time, 0, 5),
+                    ];
+                })->values());
+                $member->unsetRelation('shiftSchedules');
+                return $member;
+            });
+        });
         return response()->json($teams);
     }
 
@@ -39,7 +52,18 @@ class TeamController extends Controller
      */
     public function show(string $id)
     {
-        $team = Team::with(['manager', 'members'])->findOrFail($id);
+        $team = Team::with(['manager', 'members.shiftSchedules'])->findOrFail($id);
+        $team->members->transform(function ($member) {
+            $member->setAttribute('shift_schedule', $member->shiftSchedules->map(function ($schedule) {
+                return [
+                    'day_of_week' => $schedule->day_of_week,
+                    'start_time' => substr($schedule->start_time, 0, 5),
+                    'end_time' => substr($schedule->end_time, 0, 5),
+                ];
+            })->values());
+            $member->unsetRelation('shiftSchedules');
+            return $member;
+        });
         return response()->json($team);
     }
 
@@ -58,7 +82,20 @@ class TeamController extends Controller
 
         $team->update($validated);
 
-        return response()->json($team->load(['manager', 'members']));
+        $team->load(['manager', 'members.shiftSchedules']);
+        $team->members->transform(function ($member) {
+            $member->setAttribute('shift_schedule', $member->shiftSchedules->map(function ($schedule) {
+                return [
+                    'day_of_week' => $schedule->day_of_week,
+                    'start_time' => substr($schedule->start_time, 0, 5),
+                    'end_time' => substr($schedule->end_time, 0, 5),
+                ];
+            })->values());
+            $member->unsetRelation('shiftSchedules');
+            return $member;
+        });
+
+        return response()->json($team);
     }
 
     /**

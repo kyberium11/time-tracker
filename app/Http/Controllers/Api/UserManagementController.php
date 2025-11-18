@@ -7,6 +7,7 @@ use App\Mail\NewUserCredentialsMail;
 use App\Models\User;
 use App\Models\Team;
 use App\Models\Task;
+use App\Models\UserShiftSchedule;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Log;
@@ -23,14 +24,11 @@ class UserManagementController extends Controller
     public function index()
     {
         // Show all users, but display developers as "employee" to admins
-        $users = User::with('team')->latest()->paginate(15);
+        $users = User::with(['team', 'shiftSchedules'])->latest()->paginate(15);
         
         // Map developer role to employee for admin display
         $users->getCollection()->transform(function ($user) {
-            if ($user->role === 'developer') {
-                $user->role = 'employee';
-            }
-            return $user;
+            return $this->transformUser($user);
         });
         
         return response()->json($users);
@@ -50,6 +48,10 @@ class UserManagementController extends Controller
             'shift_start' => 'nullable|date_format:H:i',
             'shift_end' => 'nullable|date_format:H:i',
             'clickup_user_id' => 'nullable|string|max:255|unique:users,clickup_user_id',
+            'shift_schedule' => 'nullable|array',
+            'shift_schedule.*.day_of_week' => 'required|integer|between:0,6',
+            'shift_schedule.*.start_time' => 'required|date_format:H:i',
+            'shift_schedule.*.end_time' => 'required|date_format:H:i',
         ]);
 
         $plainPassword = $validated['password'];
@@ -65,9 +67,15 @@ class UserManagementController extends Controller
             'clickup_user_id' => $validated['clickup_user_id'] ?? null,
         ]);
 
+        if (!empty($validated['shift_schedule'])) {
+            $this->syncShiftSchedule($user, $validated['shift_schedule']);
+        }
+
         $this->sendWelcomeEmail($user, $plainPassword);
 
-        return response()->json($user, 201);
+        $user->load(['team', 'shiftSchedules']);
+
+        return response()->json($this->transformUser($user), 201);
     }
 
     /**
@@ -76,14 +84,10 @@ class UserManagementController extends Controller
     public function show(string $id)
     {
         // Show user, but display developer role as "employee" to admins
-        $user = User::with(['timeEntries', 'team'])->findOrFail($id);
+        $user = User::with(['timeEntries', 'team', 'shiftSchedules'])->findOrFail($id);
         
         // Map developer role to employee for admin display
-        if ($user->role === 'developer') {
-            $user->role = 'employee';
-        }
-        
-        return response()->json($user);
+        return response()->json($this->transformUser($user));
     }
 
     /**
@@ -102,6 +106,10 @@ class UserManagementController extends Controller
             'shift_start' => 'nullable|date_format:H:i',
             'shift_end' => 'nullable|date_format:H:i',
             'clickup_user_id' => 'nullable|string|max:255|unique:users,clickup_user_id,' . $id,
+            'shift_schedule' => 'nullable|array',
+            'shift_schedule.*.day_of_week' => 'required|integer|between:0,6',
+            'shift_schedule.*.start_time' => 'required|date_format:H:i',
+            'shift_schedule.*.end_time' => 'required|date_format:H:i',
         ]);
 
         if ($request->has('name')) {
@@ -137,14 +145,15 @@ class UserManagementController extends Controller
             $user->clickup_user_id = $validated['clickup_user_id'];
         }
 
-        $user->save();
-
-        // Map developer role to employee for admin display
-        if ($user->role === 'developer') {
-            $user->role = 'employee';
+        if ($request->has('shift_schedule')) {
+            $this->syncShiftSchedule($user, $validated['shift_schedule'] ?? []);
         }
 
-        return response()->json($user);
+        $user->save();
+
+        $user->loadMissing(['team', 'shiftSchedules']);
+
+        return response()->json($this->transformUser($user));
     }
 
     /**
@@ -272,5 +281,57 @@ class UserManagementController extends Controller
                 'error' => $e->getMessage(),
             ]);
         }
+    }
+
+    /**
+     * Sync the shift schedule records for the user.
+     *
+     * @param  array<int,array<string,mixed>>  $schedule
+     */
+    protected function syncShiftSchedule(User $user, array $schedule): void
+    {
+        $normalized = collect($schedule)
+            ->filter(function ($entry) {
+                return isset($entry['day_of_week'], $entry['start_time'], $entry['end_time']);
+            })
+            ->map(function ($entry) {
+                return [
+                    'day_of_week' => (int) $entry['day_of_week'],
+                    'start_time' => $entry['start_time'],
+                    'end_time' => $entry['end_time'],
+                ];
+            })
+            ->unique('day_of_week')
+            ->values();
+
+        $user->shiftSchedules()->delete();
+
+        if ($normalized->isEmpty()) {
+            return;
+        }
+
+        $user->shiftSchedules()->createMany($normalized->all());
+    }
+
+    /**
+     * Prepare user payload with shift schedule details.
+     */
+    protected function transformUser(User $user)
+    {
+        if ($user->role === 'developer') {
+            $user->role = 'employee';
+        }
+
+        $user->setAttribute('shift_schedule', $user->shiftSchedules->map(function (UserShiftSchedule $schedule) {
+            return [
+                'day_of_week' => $schedule->day_of_week,
+                'start_time' => substr($schedule->start_time, 0, 5),
+                'end_time' => substr($schedule->end_time, 0, 5),
+            ];
+        })->values());
+
+        $user->unsetRelation('shiftSchedules');
+
+        return $user;
     }
 }

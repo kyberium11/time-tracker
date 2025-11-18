@@ -8,6 +8,7 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Collection;
 
 class User extends Authenticatable
 {
@@ -78,6 +79,14 @@ class User extends Authenticatable
     }
 
     /**
+     * Get the custom shift schedules for the user.
+     */
+    public function shiftSchedules(): HasMany
+    {
+        return $this->hasMany(UserShiftSchedule::class);
+    }
+
+    /**
      * Get the team that the user manages.
      */
     public function managedTeam()
@@ -116,5 +125,37 @@ class User extends Authenticatable
     public function isDeveloper(): bool
     {
         return $this->role === 'developer';
+    }
+
+    /**
+     * Resolve the shift start/end for a specific date.
+     */
+    public function getShiftForDate(\DateTimeInterface|string|null $date = null): ?array
+    {
+        $date = $date ? \Carbon\Carbon::parse($date) : now();
+        $day = $date->dayOfWeek;
+
+        $schedules = $this->relationLoaded('shiftSchedules')
+            ? $this->shiftSchedules
+            : $this->shiftSchedules()->get();
+
+        /** @var Collection $schedules */
+        $schedule = $schedules->firstWhere('day_of_week', $day);
+
+        if ($schedule) {
+            return [
+                'start' => $schedule->start_time,
+                'end' => $schedule->end_time,
+            ];
+        }
+
+        if ($this->shift_start && $this->shift_end) {
+            return [
+                'start' => $this->shift_start,
+                'end' => $this->shift_end,
+            ];
+        }
+
+        return null;
     }
 }
