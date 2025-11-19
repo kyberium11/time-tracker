@@ -48,31 +48,6 @@ class ClickUpConfig
         return array_values(array_unique($ids));
     }
 
-    /**
-     * Get all configured ClickUp space ids.
-     *
-     * @return array<int,string>
-     */
-    public static function spaceIds(): array
-    {
-        $ids = [];
-
-        $primary = config('clickup.space_id');
-        if ($primary !== null && $primary !== '') {
-            $ids[] = (string) $primary;
-        }
-
-        $extra = config('clickup.space_ids', []);
-        if (is_array($extra)) {
-            foreach ($extra as $value) {
-                if ($value !== null && $value !== '') {
-                    $ids[] = (string) $value;
-                }
-            }
-        }
-
-        return array_values(array_unique($ids));
-    }
 }
 
 
