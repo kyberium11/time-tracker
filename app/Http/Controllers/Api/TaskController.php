@@ -111,18 +111,15 @@ class TaskController extends Controller
         }
 
         $teamIds = ClickUpConfig::teamIds();
-        if (count($teamIds) === 0) {
-            return response()->json(['error' => 'CLICKUP_TEAM_ID or CLICKUP_TEAM_IDS is not configured'], 400);
+        $spaceIds = ClickUpConfig::spaceIds();
+        if (count($teamIds) === 0 && count($spaceIds) === 0) {
+            return response()->json(['error' => 'CLICKUP team or space ids are not configured'], 400);
         }
 
         $assigneeId = $user->clickup_user_id ? (string) $user->clickup_user_id : null;
         $assigneeEmail = !$assigneeId ? (string) $user->email : null;
 
-        // Note: ClickUp API doesn't support space-level task queries directly
-        // We'll fetch from team level only, which will include all tasks across spaces
-        // The space_ids filter in team queries is not supported by ClickUp API v2
-
-        // Fetch tasks across all configured teams, merge/deduplicate.
+        // Fetch tasks across all configured scopes (teams and/or spaces), merge/deduplicate.
         $allTasks = [];
         $seen = [];
 
@@ -136,19 +133,38 @@ class TaskController extends Controller
             }
         };
 
-        foreach ($teamIds as $teamId) {
-            // Fetch tasks from team level (includes all spaces in the team)
-            try {
-                $tasksChunk = $clickUp->listTeamTasksByAssignee((string) $teamId, $assigneeId, $assigneeEmail, []);
-                $collectTasks($tasksChunk);
-            } catch (\Throwable $e) {
-                \Log::error('Failed to fetch tasks from ClickUp team', [
-                    'teamId' => $teamId,
-                    'assigneeId' => $assigneeId,
-                    'assigneeEmail' => $assigneeEmail,
-                    'error' => $e->getMessage(),
-                ]);
-                // Continue with other teams even if one fails
+        if (count($teamIds) > 0) {
+            foreach ($teamIds as $teamId) {
+                // Fetch tasks from team level (includes all spaces in the team)
+                try {
+                    $tasksChunk = $clickUp->listTeamTasksByAssignee((string) $teamId, $assigneeId, $assigneeEmail, []);
+                    $collectTasks($tasksChunk);
+                } catch (\Throwable $e) {
+                    \Log::error('Failed to fetch tasks from ClickUp team', [
+                        'teamId' => $teamId,
+                        'assigneeId' => $assigneeId,
+                        'assigneeEmail' => $assigneeEmail,
+                        'error' => $e->getMessage(),
+                    ]);
+                    // Continue with other teams even if one fails
+                }
+            }
+        }
+
+        if (count($spaceIds) > 0) {
+            foreach ($spaceIds as $spaceId) {
+                try {
+                    $tasksChunk = $clickUp->listSpaceTasksByAssignee((string) $spaceId, $assigneeId, $assigneeEmail, []);
+                    $collectTasks($tasksChunk);
+                } catch (\Throwable $e) {
+                    \Log::error('Failed to fetch tasks from ClickUp space', [
+                        'spaceId' => $spaceId,
+                        'assigneeId' => $assigneeId,
+                        'assigneeEmail' => $assigneeEmail,
+                        'error' => $e->getMessage(),
+                    ]);
+                    // Continue with other spaces even if one fails
+                }
             }
         }
         $tasks = $allTasks;
@@ -157,6 +173,7 @@ class TaskController extends Controller
         if (count($tasks) === 0) {
             \Log::warning('No tasks found from ClickUp', [
                 'teamIds' => $teamIds,
+                'spaceIds' => $spaceIds,
                 'assigneeId' => $assigneeId,
                 'assigneeEmail' => $assigneeEmail,
                 'userId' => $user->id,
@@ -252,6 +269,9 @@ class TaskController extends Controller
         $sources = [];
         foreach ($teamIds as $teamId) {
             $sources[] = 'Team ' . $teamId;
+        }
+        foreach ($spaceIds as $spaceId) {
+            $sources[] = 'Space ' . $spaceId;
         }
 
         $summary = [
