@@ -1973,7 +1973,10 @@ const formatTaskContent = (content: string | null | undefined) => {
                                         v-model="selectedSpaceIds"
                                     />
                                     <div>
-                                        <p class="font-medium text-gray-900">{{ space.name }}</p>
+                                        <p class="font-medium text-gray-900">
+                                            {{ space.name }}
+                                            <span class="text-xs text-gray-500">({{ space.id }})</span>
+                                        </p>
                                         <p v-if="space.team_name || space.team_id" class="text-xs text-gray-500">
                                             {{ space.team_name || ('Team ' + space.team_id) }}
                                         </p>
