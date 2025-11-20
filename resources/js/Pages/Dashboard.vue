@@ -497,7 +497,13 @@ const resetTaskSyncModal = () => {
     taskSyncResult.value = null;
 };
 
-const loadAvailableClickUpSpaces = async () => {
+const loadAvailableClickUpSpaces = async (forceReload = false) => {
+    if (spaceSelectionLoading.value) {
+        return;
+    }
+    if (!forceReload && spaceOptions.value.length > 0) {
+        return;
+    }
     spaceSelectionLoading.value = true;
     spaceSelectionError.value = null;
     try {
@@ -532,9 +538,7 @@ const loadAvailableClickUpSpaces = async () => {
 const openSpaceSelectionModal = async () => {
     if (taskSyncLoading.value) return;
     showSpaceSelectionModal.value = true;
-    if (!hasSpaceOptions.value && !spaceSelectionLoading.value) {
-        await loadAvailableClickUpSpaces();
-    }
+    await loadAvailableClickUpSpaces(true);
 };
 
 const toggleSelectAllSpaces = () => {
@@ -1943,7 +1947,7 @@ const formatTaskContent = (content: string | null | undefined) => {
                         <div v-else-if="spaceSelectionError" class="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700 space-y-3">
                             <p>{{ spaceSelectionError }}</p>
                             <div class="flex flex-wrap gap-2">
-                                <button @click="loadAvailableClickUpSpaces" class="rounded-md bg-white px-3 py-1.5 text-xs font-medium text-red-700 shadow hover:bg-red-50">Try again</button>
+                                <button @click="loadAvailableClickUpSpaces(true)" class="rounded-md bg-white px-3 py-1.5 text-xs font-medium text-red-700 shadow hover:bg-red-50">Try again</button>
                                 <button @click="syncAllSpacesFallback" class="rounded-md bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700">Sync without filtering</button>
                             </div>
                         </div>
