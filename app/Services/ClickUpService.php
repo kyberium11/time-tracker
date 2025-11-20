@@ -447,6 +447,45 @@ class ClickUpService
         }
     }
 
+    /**
+     * List spaces available under a ClickUp team/workspace.
+     */
+    public function listTeamSpaces(string $teamId, bool $includeArchived = false): array
+    {
+        $headers = [
+            'Authorization' => (string) $this->apiToken,
+            'Accept' => 'application/json',
+        ];
+
+        $query = [
+            'archived' => $includeArchived ? 'true' : 'false',
+        ];
+
+        try {
+            $response = Http::withHeaders($headers)
+                ->timeout(10)
+                ->get('https://api.clickup.com/api/v2/team/' . $teamId . '/space', $query);
+
+            if ($response->failed()) {
+                Log::warning('ClickUp list spaces failed', [
+                    'teamId' => $teamId,
+                    'status' => $response->status(),
+                    'body' => $response->body(),
+                ]);
+                return [];
+            }
+
+            $data = $response->json();
+            return is_array($data) ? ($data['spaces'] ?? []) : [];
+        } catch (\Throwable $e) {
+            Log::warning('ClickUp list spaces exception', [
+                'teamId' => $teamId,
+                'message' => $e->getMessage(),
+            ]);
+            return [];
+        }
+    }
+
     public function listTeamTasksByAssignee(string $teamId, ?string $assigneeId = null, ?string $assigneeEmail = null, array $extraQuery = []): array
     {
         return $this->listTasksByScope('team/' . $teamId, $assigneeId, $assigneeEmail, $extraQuery);

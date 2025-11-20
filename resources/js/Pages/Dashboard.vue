@@ -45,6 +45,14 @@ interface ActivityLog {
     user?: { id: number; name: string; email: string };
 }
 
+interface ClickUpSpaceOption {
+    id: string;
+    name: string;
+    team_id?: string | null;
+    team_name?: string | null;
+    color?: string | null;
+}
+
 const currentEntry = ref<TimeEntry | null>(null);
 const loading = ref(false);
 const status = ref('');
@@ -68,6 +76,13 @@ const taskSyncResult = ref<{
     skipped: Array<{ id: string; reason: string }>;
     sources: string[];
 } | null>(null);
+const showSpaceSelectionModal = ref(false);
+const spaceSelectionLoading = ref(false);
+const spaceSelectionError = ref<string | null>(null);
+const spaceOptions = ref<ClickUpSpaceOption[]>([]);
+const selectedSpaceIds = ref<string[]>([]);
+const hasSpaceOptions = computed(() => spaceOptions.value.length > 0);
+const allSpacesSelected = computed(() => hasSpaceOptions.value && selectedSpaceIds.value.length === spaceOptions.value.length);
 
 // Tab system for employees
 const activeTab = ref<'dashboard' | 'time-entries'>('dashboard');
@@ -482,10 +497,79 @@ const resetTaskSyncModal = () => {
     taskSyncResult.value = null;
 };
 
-const refreshMyTasksFromClickUp = async () => {
+const loadAvailableClickUpSpaces = async () => {
+    spaceSelectionLoading.value = true;
+    spaceSelectionError.value = null;
+    try {
+        const res = await api.get('/my/clickup/spaces');
+        const fetched = (res.data?.spaces || []).map((space: any) => ({
+            id: String(space.id),
+            name: space.name || `Space ${space.id}`,
+            team_id: space.team_id ?? null,
+            team_name: space.team_name ?? null,
+            color: space.color ?? null,
+        })) as ClickUpSpaceOption[];
+        spaceOptions.value = fetched;
+
+        const availableIds = fetched.map(space => space.id);
+        if (selectedSpaceIds.value.length === 0) {
+            selectedSpaceIds.value = availableIds;
+        } else {
+            selectedSpaceIds.value = selectedSpaceIds.value.filter(id => availableIds.includes(id));
+            if (selectedSpaceIds.value.length === 0) {
+                selectedSpaceIds.value = availableIds;
+            }
+        }
+    } catch (e: any) {
+        spaceSelectionError.value = e?.response?.data?.error || 'Failed to load ClickUp spaces.';
+        spaceOptions.value = [];
+        selectedSpaceIds.value = [];
+    } finally {
+        spaceSelectionLoading.value = false;
+    }
+};
+
+const openSpaceSelectionModal = async () => {
+    if (taskSyncLoading.value) return;
+    showSpaceSelectionModal.value = true;
+    if (!hasSpaceOptions.value && !spaceSelectionLoading.value) {
+        await loadAvailableClickUpSpaces();
+    }
+};
+
+const toggleSelectAllSpaces = () => {
+    if (!hasSpaceOptions.value) {
+        selectedSpaceIds.value = [];
+        return;
+    }
+    if (allSpacesSelected.value) {
+        selectedSpaceIds.value = [];
+        return;
+    }
+    selectedSpaceIds.value = spaceOptions.value.map(space => space.id);
+};
+
+const confirmSpaceSelection = async () => {
+    if (taskSyncLoading.value || spaceSelectionLoading.value) return;
+    if (!selectedSpaceIds.value.length) {
+        alert('Select at least one space to sync.');
+        return;
+    }
+    showSpaceSelectionModal.value = false;
+    await refreshMyTasksFromClickUp([...selectedSpaceIds.value]);
+};
+
+const syncAllSpacesFallback = async () => {
+    if (taskSyncLoading.value) return;
+    showSpaceSelectionModal.value = false;
+    await refreshMyTasksFromClickUp();
+};
+
+const refreshMyTasksFromClickUp = async (spaceIds: string[] | null = null) => {
     taskSyncLoading.value = true;
     try {
-        const res = await api.post('/my/clickup/sync-tasks');
+        const payload = spaceIds && spaceIds.length ? { space_ids: spaceIds } : {};
+        const res = await api.post('/my/clickup/sync-tasks', payload);
         await fetchMyTasks();
 
         const summary = res.data?.summary ?? {};
@@ -1572,7 +1656,7 @@ const formatTaskContent = (content: string | null | undefined) => {
                             <h3 class="text-lg font-medium leading-6 text-gray-900">My Tasks</h3>
                             <div class="flex items-center gap-2">
                                 <button
-                                    @click="refreshMyTasksFromClickUp"
+                                    @click="openSpaceSelectionModal"
                                     :disabled="taskSyncLoading"
                                     class="rounded-md bg-green-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-green-700 disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2"
                                 >
@@ -1836,6 +1920,80 @@ const formatTaskContent = (content: string | null | undefined) => {
                                     </tr>
                                 </tbody>
                             </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ClickUp Space Selection Modal -->
+            <div v-if="showSpaceSelectionModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+                <div class="w-full max-w-lg rounded-lg bg-white shadow-xl">
+                    <div class="flex items-center justify-between border-b px-5 py-3">
+                        <h4 class="text-md font-semibold text-gray-900">Select ClickUp Spaces</h4>
+                        <button @click="showSpaceSelectionModal = false" class="rounded-md bg-gray-100 px-2 py-1 text-xs hover:bg-gray-200">Close</button>
+                    </div>
+                    <div class="p-5 space-y-4 text-sm text-gray-700">
+                        <p>Select the ClickUp spaces you want to sync tasks from. Limiting the sync to specific spaces reduces the chance of hitting ClickUp rate limits.</p>
+
+                        <div v-if="spaceSelectionLoading" class="flex items-center gap-2 text-sm text-gray-500">
+                            <span class="h-3 w-3 rounded-full border-2 border-gray-300 border-t-indigo-600 animate-spin"></span>
+                            <span>Loading spaces…</span>
+                        </div>
+
+                        <div v-else-if="spaceSelectionError" class="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700 space-y-3">
+                            <p>{{ spaceSelectionError }}</p>
+                            <div class="flex flex-wrap gap-2">
+                                <button @click="loadAvailableClickUpSpaces" class="rounded-md bg-white px-3 py-1.5 text-xs font-medium text-red-700 shadow hover:bg-red-50">Try again</button>
+                                <button @click="syncAllSpacesFallback" class="rounded-md bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700">Sync without filtering</button>
+                            </div>
+                        </div>
+
+                        <div v-else-if="!spaceOptions.length" class="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 space-y-3">
+                            <p>No ClickUp spaces are available from the configured workspaces.</p>
+                            <button @click="syncAllSpacesFallback" class="rounded-md bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700">Sync everything instead</button>
+                        </div>
+
+                        <div v-else class="space-y-3">
+                            <div class="flex items-center justify-between text-xs text-gray-500">
+                                <span>{{ selectedSpaceIds.length }} of {{ spaceOptions.length }} selected</span>
+                                <button type="button" class="text-indigo-600 hover:text-indigo-800" @click="toggleSelectAllSpaces">
+                                    {{ allSpacesSelected ? 'Clear all' : 'Select all' }}
+                                </button>
+                            </div>
+                            <div class="max-h-72 overflow-y-auto space-y-2 pr-1">
+                                <label
+                                    v-for="space in spaceOptions"
+                                    :key="space.id"
+                                    class="flex items-start gap-3 rounded-md border border-gray-200 px-3 py-2 text-sm shadow-sm hover:border-indigo-300"
+                                >
+                                    <input
+                                        type="checkbox"
+                                        class="mt-1 h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                                        :value="space.id"
+                                        v-model="selectedSpaceIds"
+                                    />
+                                    <div>
+                                        <p class="font-medium text-gray-900">{{ space.name }}</p>
+                                        <p v-if="space.team_name || space.team_id" class="text-xs text-gray-500">
+                                            {{ space.team_name || ('Team ' + space.team_id) }}
+                                        </p>
+                                    </div>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="flex flex-wrap items-center justify-between gap-3 border-t bg-gray-50 px-5 py-3 text-xs text-gray-500">
+                        <p>Selecting fewer spaces can keep the sync fast and within ClickUp limits.</p>
+                        <div class="flex items-center gap-2 text-sm">
+                            <button @click="showSpaceSelectionModal = false" class="rounded-md bg-white px-3 py-1.5 text-xs font-medium text-gray-600 shadow hover:bg-gray-100">Cancel</button>
+                            <button
+                                @click="confirmSpaceSelection"
+                                :disabled="taskSyncLoading || spaceSelectionLoading || !selectedSpaceIds.length || !spaceOptions.length"
+                                class="rounded-md bg-green-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-60 flex items-center gap-2"
+                            >
+                                <span v-if="taskSyncLoading" class="h-3 w-3 rounded-full border-2 border-white border-t-transparent animate-spin"></span>
+                                <span>{{ taskSyncLoading ? 'Syncing…' : 'Sync selected' }}</span>
+                            </button>
                         </div>
                     </div>
                 </div>

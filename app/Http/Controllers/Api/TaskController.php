@@ -111,6 +111,57 @@ class TaskController extends Controller
     }
 
     /**
+     * List ClickUp spaces available for the authenticated user based on configured teams.
+     */
+    public function myClickUpSpaces(ClickUpService $clickUp)
+    {
+        $user = Auth::user();
+        if (!$user) {
+            return response()->json(['error' => 'Unauthorized'], 401);
+        }
+
+        $teamIds = ClickUpConfig::teamIds();
+        if (count($teamIds) === 0) {
+            return response()->json(['spaces' => []]);
+        }
+
+        $spaces = [];
+        $seen = [];
+
+        foreach ($teamIds as $teamId) {
+            try {
+                $items = $clickUp->listTeamSpaces((string) $teamId);
+            } catch (\Throwable $e) {
+                \Log::error('Failed to fetch ClickUp spaces', [
+                    'userId' => $user->id,
+                    'teamId' => $teamId,
+                    'error' => $e->getMessage(),
+                ]);
+                continue;
+            }
+
+            foreach ($items as $space) {
+                $spaceId = (string) (data_get($space, 'id') ?? '');
+                if ($spaceId === '' || isset($seen[$spaceId])) {
+                    continue;
+                }
+
+                $seen[$spaceId] = true;
+
+                $spaces[] = [
+                    'id' => $spaceId,
+                    'name' => (string) (data_get($space, 'name') ?? ('Space ' . $spaceId)),
+                    'team_id' => (string) $teamId,
+                    'team_name' => (string) (data_get($space, 'team.name') ?? null),
+                    'color' => data_get($space, 'color'),
+                ];
+            }
+        }
+
+        return response()->json(['spaces' => $spaces]);
+    }
+
+    /**
      * Manually sync the authenticated user's tasks from ClickUp.
      */
     public function syncMyClickUpTasks(ClickUpService $clickUp)
@@ -128,6 +179,9 @@ class TaskController extends Controller
         $assigneeId = $user->clickup_user_id ? (string) $user->clickup_user_id : null;
         $assigneeEmail = !$assigneeId ? (string) $user->email : null;
 
+        $spaceIdsInput = $this->sanitizeSpaceIds($request->input('space_ids', []));
+        $spaceRestricted = count($spaceIdsInput) > 0;
+
         // Fetch tasks across all configured scopes (teams and/or spaces), merge/deduplicate.
         $allTasks = [];
         $seen = [];
@@ -142,19 +196,39 @@ class TaskController extends Controller
             }
         };
 
-        foreach ($teamIds as $teamId) {
-            // Fetch tasks from team level (includes all spaces in the team)
-            try {
-                $tasksChunk = $clickUp->listTeamTasksByAssignee((string) $teamId, $assigneeId, $assigneeEmail, []);
-                $collectTasks($tasksChunk);
-            } catch (\Throwable $e) {
-                \Log::error('Failed to fetch tasks from ClickUp team', [
-                    'teamId' => $teamId,
-                    'assigneeId' => $assigneeId,
-                    'assigneeEmail' => $assigneeEmail,
-                    'error' => $e->getMessage(),
-                ]);
-                // Continue with other teams even if one fails
+        $sources = [];
+
+        if ($spaceRestricted) {
+            foreach ($spaceIdsInput as $spaceId) {
+                try {
+                    $tasksChunk = $clickUp->listSpaceTasksByAssignee((string) $spaceId, $assigneeId, $assigneeEmail, []);
+                    $collectTasks($tasksChunk);
+                    $sources[] = 'Space ' . $spaceId;
+                } catch (\Throwable $e) {
+                    \Log::error('Failed to fetch tasks from ClickUp space', [
+                        'spaceId' => $spaceId,
+                        'assigneeId' => $assigneeId,
+                        'assigneeEmail' => $assigneeEmail,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            }
+        } else {
+            foreach ($teamIds as $teamId) {
+                // Fetch tasks from team level (includes all spaces in the team)
+                try {
+                    $tasksChunk = $clickUp->listTeamTasksByAssignee((string) $teamId, $assigneeId, $assigneeEmail, []);
+                    $collectTasks($tasksChunk);
+                    $sources[] = 'Team ' . $teamId;
+                } catch (\Throwable $e) {
+                    \Log::error('Failed to fetch tasks from ClickUp team', [
+                        'teamId' => $teamId,
+                        'assigneeId' => $assigneeId,
+                        'assigneeEmail' => $assigneeEmail,
+                        'error' => $e->getMessage(),
+                    ]);
+                    // Continue with other teams even if one fails
+                }
             }
         }
         $tasks = $allTasks;
@@ -255,11 +329,6 @@ class TaskController extends Controller
             }
         }
 
-        $sources = [];
-        foreach ($teamIds as $teamId) {
-            $sources[] = 'Team ' . $teamId;
-        }
-
         $summary = [
             'total' => count($created) + count($updated) + $unchanged,
             'created' => count($created),
@@ -276,6 +345,29 @@ class TaskController extends Controller
             'skipped' => $skipped,
             'sources' => $sources,
         ]);
+    }
+
+    /**
+     * @param mixed $rawIds
+     * @return array<int,string>
+     */
+    private function sanitizeSpaceIds(mixed $rawIds): array
+    {
+        if (!is_array($rawIds)) {
+            return [];
+        }
+
+        $clean = [];
+        foreach ($rawIds as $value) {
+            if (is_string($value) || is_numeric($value)) {
+                $id = trim((string) $value);
+                if ($id !== '') {
+                    $clean[$id] = true;
+                }
+            }
+        }
+
+        return array_keys($clean);
     }
 
     /**

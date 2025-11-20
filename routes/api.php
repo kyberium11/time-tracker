@@ -36,6 +36,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
     // My tasks
     Route::get('/my/tasks', [TaskController::class, 'myTasks']);
     Route::get('/my/tasks/break', [TaskController::class, 'myBreakTask']);
+    Route::get('/my/clickup/spaces', [TaskController::class, 'myClickUpSpaces']);
     Route::post('/my/clickup/sync-tasks', [TaskController::class, 'syncMyClickUpTasks']);
     Route::get('/tasks/{id}/sync', [TaskController::class, 'sync']);
 
