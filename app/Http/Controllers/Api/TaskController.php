@@ -18,10 +18,20 @@ class TaskController extends Controller
      */
     public function myTasks()
     {
+        $statusOrdering = <<<SQL
+            CASE
+                WHEN LOWER(status) = 'in progress' THEN 0
+                WHEN LOWER(status) = 'to do' THEN 1
+                WHEN LOWER(status) = 'complete' THEN 3
+                ELSE 2
+            END
+        SQL;
+
         $tasks = Task::where('user_id', Auth::id())
             ->with(['parentTask' => function ($query) {
                 $query->select('id', 'title', 'clickup_task_id');
             }])
+            ->orderByRaw($statusOrdering)
             ->orderBy('updated_at', 'desc')
             ->get(['id', 'title', 'status', 'priority', 'due_date', 'clickup_task_id', 'clickup_parent_id', 'estimated_time', 'clickup_list_name']);
 
