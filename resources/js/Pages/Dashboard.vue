@@ -1447,12 +1447,11 @@ const loadTimeEntries = async () => {
             .filter(row => row.name === 'Break')
             .reduce((sum, row) => sum + (row.durationSeconds || 0), 0);
 
-        // Use API-provided daily totals if available, otherwise calculate
+        // Use API-provided daily totals (these are calculated from filtered entries based on shift)
         if (res.data?.daily_totals) {
-            // Override workSeconds and breakSeconds with sums from rows
             timeEntriesSummary.value = {
-                workSeconds: workHoursSum,
-                breakSeconds: totalBreakSecondsFromRows,
+                workSeconds: res.data.daily_totals.work_seconds || 0,
+                breakSeconds: res.data.daily_totals.break_seconds || 0,
                 lunchSeconds: res.data.daily_totals.lunch_seconds || 0,
                 tasksCount: res.data.daily_totals.tasks_count || 0,
                 status: res.data.daily_totals.status || 'No Entry',

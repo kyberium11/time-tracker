@@ -798,8 +798,8 @@ class AnalyticsController extends Controller
             return $entry;
         });
 
-        // Calculate daily totals
-        // Only count work entries without tasks as "Work Hours"
+        // Calculate daily totals from filtered entries
+        // Count all work entries (both with and without tasks) for total work time
         $workSeconds = 0;
         $breakSeconds = 0;
         $lunchSeconds = 0;
@@ -821,16 +821,20 @@ class AnalyticsController extends Controller
             }
             
             // This is a work entry
-            // Check if this entry has a task
-            $hasTask = $entry->task && ($entry->task->title || $entry->task->name);
+            // Check if this entry has a task (task_id is set and task exists)
+            $hasTask = $entry->task_id && $entry->task && ($entry->task->title || $entry->task->name);
             
-            // Only count entries without tasks as "Work Hours"
-            if ($entry->clock_in && $entry->clock_out && !$hasTask) {
+            // Count all work entries (with or without tasks) for total work time
+            // Only count entries that are closed (have clock_out) for accurate totals
+            if ($entry->clock_in && $entry->clock_out) {
                 $clockInUtc = \Carbon\Carbon::parse($entry->clock_in);
                 $clockOutUtc = \Carbon\Carbon::parse($entry->clock_out);
                 $seconds = max(0, $clockOutUtc->diffInSeconds($clockInUtc));
+                
+                // Add to work seconds (all work entries count, both with and without tasks)
                 $workSeconds += $seconds;
                 
+                // Track first in and last out for status calculation
                 if (!$firstIn || $clockInUtc->lt($firstIn)) {
                     $firstIn = $clockInUtc;
                 }
@@ -846,6 +850,12 @@ class AnalyticsController extends Controller
                     $lunchSeconds += $lunchDur;
                     $workSeconds -= $lunchDur;
                 }
+            } elseif ($entry->clock_in && !$entry->clock_out) {
+                // Entry is in progress - track first in for status (but don't count in work seconds yet)
+                $clockInUtc = \Carbon\Carbon::parse($entry->clock_in);
+                if (!$firstIn || $clockInUtc->lt($firstIn)) {
+                    $firstIn = $clockInUtc;
+                }
             }
             
             if ($hasTask) {
@@ -855,31 +865,81 @@ class AnalyticsController extends Controller
         
         $workSeconds = max(0, $workSeconds);
         
-        // Determine status
+        // Determine status based on shift for the date
         $status = 'No Entry';
-        if ($firstIn && $lastOut) {
-            $shiftWindow = $this->resolveShiftWindow($user, $firstIn);
-            $shiftHours = $this->getShiftHours($shiftWindow);
+        $overtimeSeconds = 0;
+        
+        if ($firstIn && $lastOut && count($entries) > 0) {
+            // Get shift for the date (use the date from the request, not firstIn)
+            $shift = $user->getShiftForDate($startDate);
             
-            $clockInTime = $firstIn->format('H:i');
-            $expectedStart = $shiftWindow ? $shiftWindow['start']->format('H:i') : '09:00';
-            $isLate = $clockInTime > $expectedStart;
-            $hasEnoughHours = ($workSeconds / 3600) >= ($shiftHours - 0.5);
-            
-            if (!$isLate && $hasEnoughHours) {
-                $status = 'Perfect';
-            } elseif ($isLate) {
-                $status = 'Late';
+            if ($shift && isset($shift['start']) && isset($shift['end'])) {
+                // Parse shift times
+                $startParts = explode(':', $shift['start']);
+                $endParts = explode(':', $shift['end']);
+                $startHour = (int) $startParts[0];
+                $startMinute = isset($startParts[1]) ? (int) $startParts[1] : 0;
+                $endHour = (int) $endParts[0];
+                $endMinute = isset($endParts[1]) ? (int) $endParts[1] : 0;
+                
+                // Determine if shift spans midnight
+                $spansMidnight = ($endHour < $startHour) || ($endHour == $startHour && $endMinute < $startMinute);
+                
+                // Calculate shift duration in hours
+                $dateCarbon = Carbon::parse($startDate)->setTimezone('Asia/Manila')->startOfDay();
+                $shiftStart = $dateCarbon->copy()->setTime($startHour, $startMinute, 0);
+                if ($spansMidnight) {
+                    $shiftEnd = $dateCarbon->copy()->addDay()->setTime($endHour, $endMinute, 0);
+                } else {
+                    $shiftEnd = $dateCarbon->copy()->setTime($endHour, $endMinute, 0);
+                }
+                $shiftHours = $shiftStart->diffInHours($shiftEnd);
+                
+                // Check if late (compare first clock in with shift start)
+                $firstInLocal = $firstIn->copy()->setTimezone('Asia/Manila');
+                $clockInTime = $firstInLocal->format('H:i');
+                $expectedStart = $shiftStart->format('H:i');
+                $isLate = $clockInTime > $expectedStart;
+                
+                // Check if has enough hours (within 0.5 hours tolerance)
+                $hasEnoughHours = ($workSeconds / 3600) >= ($shiftHours - 0.5);
+                
+                if (!$isLate && $hasEnoughHours) {
+                    $status = 'Perfect';
+                } elseif ($isLate) {
+                    $status = 'Late';
+                } else {
+                    $status = 'Undertime';
+                }
+                
+                // Calculate overtime (work time exceeding shift hours)
+                $overtimeSeconds = max(0, $workSeconds - ($shiftHours * 3600));
             } else {
-                $status = 'Undertime';
+                // No shift defined, use default 8 hours
+                $shiftHours = 8;
+                $hasEnoughHours = ($workSeconds / 3600) >= ($shiftHours - 0.5);
+                $status = $hasEnoughHours ? 'Perfect' : 'Undertime';
+                $overtimeSeconds = max(0, $workSeconds - ($shiftHours * 3600));
             }
         }
-        
-        // Calculate overtime
-        $shiftWindow = $this->resolveShiftWindow($user, $firstIn);
-        $shiftHours = $this->getShiftHours($shiftWindow);
-        $overtimeSeconds = max(0, $workSeconds - ($shiftHours * 3600));
 
+        // Format work seconds to HH:MM:SS for frontend
+        $pad = function ($n) { return $n < 10 ? '0'.$n : (string) $n; };
+        $h = intdiv($workSeconds, 3600);
+        $m = intdiv($workSeconds % 3600, 60);
+        $s = $workSeconds % 60;
+        $workHoursFormatted = $pad($h).':'.$pad($m).':'.$pad($s);
+        
+        $breakH = intdiv($breakSeconds, 3600);
+        $breakM = intdiv($breakSeconds % 3600, 60);
+        $breakS = $breakSeconds % 60;
+        $breakHoursFormatted = $pad($breakH).':'.$pad($breakM).':'.$pad($breakS);
+        
+        $overtimeH = intdiv($overtimeSeconds, 3600);
+        $overtimeM = intdiv($overtimeSeconds % 3600, 60);
+        $overtimeS = $overtimeSeconds % 60;
+        $overtimeFormatted = $pad($overtimeH).':'.$pad($overtimeM).':'.$pad($overtimeS);
+        
         return response()->json([
             'user' => [
                 'id' => $user->id,
@@ -897,11 +957,14 @@ class AnalyticsController extends Controller
             ],
             'daily_totals' => [
                 'work_seconds' => $workSeconds,
+                'work_hours_formatted' => $workHoursFormatted,
                 'break_seconds' => $breakSeconds,
+                'break_hours_formatted' => $breakHoursFormatted,
                 'lunch_seconds' => $lunchSeconds,
                 'tasks_count' => $tasksCount,
                 'status' => $status,
                 'overtime_seconds' => $overtimeSeconds,
+                'overtime_formatted' => $overtimeFormatted,
             ],
         ]);
     }
