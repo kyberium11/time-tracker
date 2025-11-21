@@ -136,6 +136,32 @@ const splitRange = (start: number, end: number) => {
 };
 
 const HOURS_IN_DAY = 24;
+const zoomLevels = [4, 2, 1, 0.5]; // hours per grid interval
+const zoomIndex = ref(1); // default 2-hour ticks
+
+const canZoomOut = computed(() => zoomIndex.value > 0);
+const canZoomIn = computed(() => zoomIndex.value < zoomLevels.length - 1);
+
+const zoomOut = () => {
+    if (canZoomOut.value) {
+        zoomIndex.value -= 1;
+    }
+};
+
+const zoomIn = () => {
+    if (canZoomIn.value) {
+        zoomIndex.value += 1;
+    }
+};
+
+const currentStep = computed(() => zoomLevels[zoomIndex.value]);
+const zoomLabel = computed(() => {
+    const step = currentStep.value;
+    if (step >= 1) {
+        return `${step} hr`;
+    }
+    return `${Math.round(step * 60)} min`;
+});
 
 const hourToLabel = (value: number) => {
     const wrapped = ((value % 24) + 24) % 24;
@@ -149,7 +175,8 @@ const hourToLabel = (value: number) => {
 
 const hourTicks = computed(() => {
     const ticks: Array<{ label: string; value: number }> = [];
-    for (let i = 0; i <= HOURS_IN_DAY; i += 2) {
+    const step = currentStep.value;
+    for (let i = 0; i <= HOURS_IN_DAY; i += step) {
         ticks.push({ label: hourToLabel(i), value: i });
     }
     return ticks;
@@ -260,8 +287,9 @@ const gridLines = computed(() =>
                                     <span class="font-mono">{{ timezone }}</span>
                                 </p>
                             </div>
-                            <div class="flex flex-wrap items-end gap-4">
-                                <div>
+                            <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
+                                <div class="flex flex-wrap items-end gap-4">
+                                    <div>
                                     <label class="block text-sm font-medium text-gray-700 mb-1">
                                         Start Date
                                     </label>
@@ -297,6 +325,35 @@ const gridLines = computed(() =>
                                         :disabled="loading"
                                     >
                                         Reset
+                                    </button>
+                                </div>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <span class="text-xs font-medium text-gray-500">Time Unit</span>
+                                    <button
+                                        type="button"
+                                        class="inline-flex h-8 w-8 items-center justify-center rounded-md border border-gray-300 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-40"
+                                        @click="zoomOut"
+                                        :disabled="!canZoomOut"
+                                        aria-label="Zoom out"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-4 w-4">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14" />
+                                        </svg>
+                                    </button>
+                                    <span class="px-2 text-xs font-semibold text-gray-700 border border-gray-200 rounded-md bg-white">
+                                        {{ zoomLabel }}
+                                    </span>
+                                    <button
+                                        type="button"
+                                        class="inline-flex h-8 w-8 items-center justify-center rounded-md border border-gray-300 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-40"
+                                        @click="zoomIn"
+                                        :disabled="!canZoomIn"
+                                        aria-label="Zoom in"
+                                    >
+                                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="h-4 w-4">
+                                            <path stroke-linecap="round" stroke-linejoin="round" d="M12 5v14m-7-7h14" />
+                                        </svg>
                                     </button>
                                 </div>
                             </div>
