@@ -382,52 +382,87 @@ class TaskController extends Controller
             return true;
         }
 
+        // Check various possible locations for membership data in the space object
         $collections = [
             data_get($space, 'members', []),
             data_get($space, 'memberships', []),
+            data_get($space, 'team.members', []),
+            data_get($space, 'team.memberships', []),
         ];
 
         $hasMembershipData = false;
 
         foreach ($collections as $collection) {
-            if (!is_array($collection)) {
+            if (!is_array($collection) || empty($collection)) {
                 continue;
             }
+            
+            $hasMembershipData = true;
+            
             foreach ($collection as $member) {
                 if (!is_array($member)) {
                     continue;
                 }
 
-                $hasMembershipData = true;
-
+                // Check multiple possible ID fields
                 $memberIds = [
                     data_get($member, 'id'),
                     data_get($member, 'user.id'),
                     data_get($member, 'user_id'),
+                    data_get($member, 'user', []), // Sometimes user is an object with id
                 ];
+                
+                // If user is an object, extract its id
+                $userObj = data_get($member, 'user');
+                if (is_array($userObj) && isset($userObj['id'])) {
+                    $memberIds[] = $userObj['id'];
+                }
+                
                 foreach ($memberIds as $memberId) {
-                    if ($assigneeId && $memberId !== null && (string) $memberId === $assigneeId) {
-                        return true;
+                    if ($assigneeId && $memberId !== null) {
+                        // Try both string and numeric comparison
+                        if ((string) $memberId === (string) $assigneeId || (int) $memberId === (int) $assigneeId) {
+                            \Log::debug('ClickUp space membership verified (ID match in list response)', [
+                                'spaceId' => data_get($space, 'id'),
+                                'assigneeId' => $assigneeId,
+                                'memberId' => $memberId,
+                            ]);
+                            return true;
+                        }
                     }
                 }
 
+                // Check multiple possible email fields
                 $memberEmails = [
                     data_get($member, 'email'),
                     data_get($member, 'user.email'),
+                    data_get($member, 'user_email'),
                 ];
+                
+                // If user is an object, extract its email
+                if (is_array($userObj) && isset($userObj['email'])) {
+                    $memberEmails[] = $userObj['email'];
+                }
+                
                 foreach ($memberEmails as $memberEmail) {
                     if (
                         $assigneeEmail
                         && $memberEmail !== null
-                        && strcasecmp((string) $memberEmail, $assigneeEmail) === 0
+                        && $memberEmail !== ''
+                        && strcasecmp(trim((string) $memberEmail), trim($assigneeEmail)) === 0
                     ) {
+                        \Log::debug('ClickUp space membership verified (email match in list response)', [
+                            'spaceId' => data_get($space, 'id'),
+                            'assigneeEmail' => $assigneeEmail,
+                            'memberEmail' => $memberEmail,
+                        ]);
                         return true;
                     }
                 }
             }
         }
 
-        // If no membership data in the list response, fetch detailed space info to check membership
+        // If no membership data in the list response, try to fetch detailed space info
         if (!$hasMembershipData && $clickUp) {
             $spaceId = (string) (data_get($space, 'id') ?? '');
             if ($spaceId !== '') {
@@ -483,25 +518,50 @@ class TaskController extends Controller
                         }
                     }
                     // User not found in detailed space members
-                    \Log::debug('ClickUp space excluded - user not found in members', [
+                    \Log::debug('ClickUp space - user not found in detailed space members', [
                         'spaceId' => $spaceId,
                         'assigneeId' => $assigneeId,
                         'assigneeEmail' => $assigneeEmail,
+                        'hasMembers' => !empty($detailedCollections[0]),
+                        'hasMemberships' => !empty($detailedCollections[1]),
                     ]);
                 } else {
-                    // Detailed space fetch failed
-                    \Log::debug('ClickUp space excluded - detailed fetch failed', [
+                    // Detailed space fetch failed - log for debugging
+                    \Log::debug('ClickUp space - detailed fetch failed or returned null', [
                         'spaceId' => $spaceId,
                     ]);
                 }
-                // If detailed space fetch failed or user not found in members, exclude the space
-                return false;
             }
         }
 
-        // If we had membership data but user wasn't found, exclude the space
-        // If we had no membership data and couldn't verify access, exclude to be safe
-        return false;
+        // If we had membership data in list response but user wasn't found, exclude the space
+        if ($hasMembershipData) {
+            \Log::debug('ClickUp space excluded - user not found in list response membership data', [
+                'spaceId' => data_get($space, 'id'),
+                'assigneeId' => $assigneeId,
+                'assigneeEmail' => $assigneeEmail,
+            ]);
+            return false;
+        }
+
+        // If no membership data was available and we couldn't verify, be lenient:
+        // Include the space if user has a clickup_user_id (they're likely a member)
+        // This prevents excluding all spaces when membership data isn't available
+        if ($assigneeId) {
+            \Log::debug('ClickUp space included - no membership data available but user has clickup_user_id', [
+                'spaceId' => data_get($space, 'id'),
+                'assigneeId' => $assigneeId,
+            ]);
+            return true;
+        }
+
+        // If user only has email (no clickup_user_id), be more cautious
+        // But still include to avoid blocking legitimate access
+        \Log::debug('ClickUp space included - no membership data available, using email fallback', [
+            'spaceId' => data_get($space, 'id'),
+            'assigneeEmail' => $assigneeEmail,
+        ]);
+        return true;
     }
 
     /**
