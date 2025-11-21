@@ -619,6 +619,61 @@ class AnalyticsController extends Controller
     }
 
     /**
+     * Filter time entries by user's shift schedule for a given date.
+     * 
+     * @param \Illuminate\Support\Collection $entries
+     * @param User $user
+     * @param string $date (Y-m-d format)
+     * @return \Illuminate\Support\Collection
+     */
+    private function filterEntriesByShift($entries, User $user, string $date)
+    {
+        $shift = $user->getShiftForDate($date);
+        
+        // If no shift defined, return all entries (backward compatibility)
+        if (!$shift || !isset($shift['start']) || !isset($shift['end'])) {
+            return $entries;
+        }
+        
+        $startTime = $shift['start'];
+        $endTime = $shift['end'];
+        $dateCarbon = Carbon::parse($date);
+        
+        // Parse shift times (format: "HH:MM" or "H:MM")
+        $startParts = explode(':', $startTime);
+        $endParts = explode(':', $endTime);
+        $startHour = (int) $startParts[0];
+        $startMinute = isset($startParts[1]) ? (int) $startParts[1] : 0;
+        $endHour = (int) $endParts[0];
+        $endMinute = isset($endParts[1]) ? (int) $endParts[1] : 0;
+        
+        // Determine if shift spans midnight (e.g., 4pm-1am)
+        $spansMidnight = ($endHour < $startHour) || ($endHour == $startHour && $endMinute < $startMinute);
+        
+        // Calculate shift window boundaries
+        $shiftStart = $dateCarbon->copy()->setTime($startHour, $startMinute, 0);
+        if ($spansMidnight) {
+            // Shift ends on next day
+            $shiftEnd = $dateCarbon->copy()->addDay()->setTime($endHour, $endMinute, 0);
+        } else {
+            // Shift ends on same day
+            $shiftEnd = $dateCarbon->copy()->setTime($endHour, $endMinute, 0);
+        }
+        
+        // Filter entries that fall within the shift window
+        return $entries->filter(function($entry) use ($shiftStart, $shiftEnd) {
+            if (!$entry->clock_in) {
+                return false;
+            }
+            
+            $clockIn = Carbon::parse($entry->clock_in);
+            
+            // Entry is within shift if clock_in is >= shiftStart and < shiftEnd
+            return $clockIn->gte($shiftStart) && $clockIn->lt($shiftEnd);
+        });
+    }
+
+    /**
      * Get current user's own time entries (for employees).
      */
     public function myTimeEntries(Request $request)
@@ -648,6 +703,31 @@ class AnalyticsController extends Controller
         
         // Combine and sort by clock_in time
         $entries = $workEntries->concat($breakEntries)->sortBy(function($entry) {
+            return $entry->clock_in ? $entry->clock_in->timestamp : 0;
+        })->values();
+        
+        // Filter by shift schedule for each date in range
+        $filteredEntries = collect();
+        $currentDate = Carbon::parse($startDate);
+        $endDateCarbon = Carbon::parse($endDate);
+        
+        while ($currentDate->lte($endDateCarbon)) {
+            $dateStr = $currentDate->format('Y-m-d');
+            $dateEntries = $entries->filter(function($entry) use ($dateStr) {
+                if (!$entry->clock_in) return false;
+                $entryDate = Carbon::parse($entry->clock_in)->format('Y-m-d');
+                // Include entries from this date or next day (for shifts spanning midnight)
+                return $entryDate === $dateStr || $entryDate === Carbon::parse($dateStr)->addDay()->format('Y-m-d');
+            });
+            
+            $filteredDateEntries = $this->filterEntriesByShift($dateEntries, $user, $dateStr);
+            $filteredEntries = $filteredEntries->concat($filteredDateEntries);
+            
+            $currentDate->addDay();
+        }
+        
+        // Remove duplicates and re-sort after filtering
+        $entries = $filteredEntries->unique('id')->sortBy(function($entry) {
             return $entry->clock_in ? $entry->clock_in->timestamp : 0;
         })->values();
 
@@ -837,6 +917,31 @@ class AnalyticsController extends Controller
         
         // Combine and sort by clock_in time
         $entries = $workEntries->concat($breakEntries)->sortBy(function($entry) {
+            return $entry->clock_in ? $entry->clock_in->timestamp : 0;
+        })->values();
+        
+        // Filter by shift schedule for each date in range
+        $filteredEntries = collect();
+        $currentDate = Carbon::parse($startDate);
+        $endDateCarbon = Carbon::parse($endDate);
+        
+        while ($currentDate->lte($endDateCarbon)) {
+            $dateStr = $currentDate->format('Y-m-d');
+            $dateEntries = $entries->filter(function($entry) use ($dateStr) {
+                if (!$entry->clock_in) return false;
+                $entryDate = Carbon::parse($entry->clock_in)->format('Y-m-d');
+                // Include entries from this date or next day (for shifts spanning midnight)
+                return $entryDate === $dateStr || $entryDate === Carbon::parse($dateStr)->addDay()->format('Y-m-d');
+            });
+            
+            $filteredDateEntries = $this->filterEntriesByShift($dateEntries, $user, $dateStr);
+            $filteredEntries = $filteredEntries->concat($filteredDateEntries);
+            
+            $currentDate->addDay();
+        }
+        
+        // Remove duplicates and re-sort after filtering
+        $entries = $filteredEntries->unique('id')->sortBy(function($entry) {
             return $entry->clock_in ? $entry->clock_in->timestamp : 0;
         })->values();
 

@@ -180,7 +180,17 @@ class TaskController extends Controller
         try {
             $space = $clickUp->getSpace($spaceId);
             if (!$space) {
-                return response()->json(['error' => 'Space not found'], 404);
+                \Log::warning('ClickUp space not found', [
+                    'userId' => $user->id,
+                    'spaceId' => $spaceId,
+                    'userEmail' => $user->email,
+                ]);
+                return response()->json([
+                    'space_id' => $spaceId,
+                    'name' => 'Space ' . $spaceId,
+                    'is_member' => false,
+                    'error' => 'Space not found or not accessible',
+                ], 200); // Return 200 but mark as not a member so it can be skipped gracefully
             }
 
             $clickUpUserId = $user->clickup_user_id ? (string) $user->clickup_user_id : null;
@@ -188,6 +198,15 @@ class TaskController extends Controller
 
             // Check if user is a member
             $isMember = $this->clickUpSpaceIncludesUser($space, $clickUpUserId, $clickUpEmail, $clickUp);
+
+            \Log::debug('ClickUp space info retrieved', [
+                'userId' => $user->id,
+                'spaceId' => $spaceId,
+                'spaceName' => data_get($space, 'name'),
+                'isMember' => $isMember,
+                'clickUpUserId' => $clickUpUserId,
+                'clickUpEmail' => $clickUpEmail,
+            ]);
 
             return response()->json([
                 'space_id' => $spaceId,
@@ -199,8 +218,14 @@ class TaskController extends Controller
                 'userId' => $user->id,
                 'spaceId' => $spaceId,
                 'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
             ]);
-            return response()->json(['error' => 'Failed to get space information: ' . $e->getMessage()], 500);
+            return response()->json([
+                'space_id' => $spaceId,
+                'name' => 'Space ' . $spaceId,
+                'is_member' => false,
+                'error' => 'Failed to get space information: ' . $e->getMessage(),
+            ], 200); // Return 200 but mark as not a member
         }
     }
 
@@ -233,17 +258,37 @@ class TaskController extends Controller
         try {
             $tasksChunk = $clickUp->listSpaceTasksByAssignee((string) $spaceId, $assigneeId, $assigneeEmail, []);
             $collectTasks($tasksChunk);
+            
+            \Log::info('Fetched tasks from ClickUp space', [
+                'spaceId' => $spaceId,
+                'assigneeId' => $assigneeId,
+                'assigneeEmail' => $assigneeEmail,
+                'taskCount' => count($allTasks),
+            ]);
         } catch (\Throwable $e) {
             \Log::error('Failed to fetch tasks from ClickUp space', [
                 'spaceId' => $spaceId,
                 'assigneeId' => $assigneeId,
                 'assigneeEmail' => $assigneeEmail,
+                'userId' => $user->id,
                 'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
             ]);
             return response()->json(['error' => 'Failed to fetch tasks: ' . $e->getMessage()], 500);
         }
 
         $tasks = $allTasks;
+
+        // Log if no tasks found
+        if (count($tasks) === 0) {
+            \Log::warning('No tasks found from ClickUp space', [
+                'spaceId' => $spaceId,
+                'assigneeId' => $assigneeId,
+                'assigneeEmail' => $assigneeEmail,
+                'userId' => $user->id,
+                'userEmail' => $user->email,
+            ]);
+        }
 
         $created = [];
         $updated = [];
@@ -260,7 +305,9 @@ class TaskController extends Controller
                 continue;
             }
 
-            if (!$this->clickUpTaskMatchesAssignee($t, $assigneeId, $assigneeEmail)) {
+            // Only check assignee if we have assignee info, otherwise include all tasks from the space
+            // This is because the API filter might not work perfectly, so we check here as a safety measure
+            if (($assigneeId || $assigneeEmail) && !$this->clickUpTaskMatchesAssignee($t, $assigneeId, $assigneeEmail)) {
                 $skipped[] = [
                     'id' => $taskId,
                     'reason' => 'Task not assigned to the authenticated user',
@@ -778,7 +825,13 @@ class TaskController extends Controller
         }
 
         $assignees = data_get($task, 'assignees', []);
-        if (!is_array($assignees)) {
+        if (!is_array($assignees) || empty($assignees)) {
+            // If task has no assignees, don't include it when filtering by assignee
+            \Log::debug('Task has no assignees', [
+                'taskId' => data_get($task, 'id'),
+                'assigneeId' => $assigneeId,
+                'assigneeEmail' => $assigneeEmail,
+            ]);
             return false;
         }
 
@@ -787,17 +840,44 @@ class TaskController extends Controller
                 continue;
             }
 
-            if ($assigneeId && (string) (data_get($assignee, 'id') ?? '') === $assigneeId) {
-                return true;
+            // Check multiple possible ID fields
+            $assigneeIds = [
+                data_get($assignee, 'id'),
+                data_get($assignee, 'user.id'),
+                data_get($assignee, 'user_id'),
+            ];
+            
+            foreach ($assigneeIds as $aid) {
+                if ($assigneeId && $aid !== null) {
+                    // Try both string and numeric comparison
+                    if ((string) $aid === (string) $assigneeId || (int) $aid === (int) $assigneeId) {
+                        return true;
+                    }
+                }
             }
 
-            if ($assigneeEmail) {
-                $email = (string) (data_get($assignee, 'email') ?? '');
-                if ($email !== '' && strcasecmp($email, $assigneeEmail) === 0) {
-                    return true;
+            // Check multiple possible email fields
+            $assigneeEmails = [
+                data_get($assignee, 'email'),
+                data_get($assignee, 'user.email'),
+            ];
+            
+            foreach ($assigneeEmails as $email) {
+                if ($assigneeEmail && $email !== null && $email !== '') {
+                    if (strcasecmp(trim((string) $email), trim($assigneeEmail)) === 0) {
+                        return true;
+                    }
                 }
             }
         }
+
+        \Log::debug('Task assignee check failed', [
+            'taskId' => data_get($task, 'id'),
+            'taskName' => data_get($task, 'name'),
+            'assigneeId' => $assigneeId,
+            'assigneeEmail' => $assigneeEmail,
+            'taskAssignees' => $assignees,
+        ]);
 
         return false;
     }
