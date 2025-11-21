@@ -127,6 +127,8 @@ class TaskController extends Controller
 
         $spaces = [];
         $seen = [];
+        $clickUpUserId = $user->clickup_user_id ? (string) $user->clickup_user_id : null;
+        $clickUpEmail = $user->email ? (string) $user->email : null;
 
         foreach ($teamIds as $teamId) {
             try {
@@ -143,6 +145,10 @@ class TaskController extends Controller
             foreach ($items as $space) {
                 $spaceId = (string) (data_get($space, 'id') ?? '');
                 if ($spaceId === '' || isset($seen[$spaceId])) {
+                    continue;
+                }
+
+                if (!$this->clickUpSpaceIncludesUser($space, $clickUpUserId, $clickUpEmail, $clickUp)) {
                     continue;
                 }
 
@@ -368,6 +374,134 @@ class TaskController extends Controller
         }
 
         return array_keys($clean);
+    }
+
+    private function clickUpSpaceIncludesUser(array $space, ?string $assigneeId, ?string $assigneeEmail, ClickUpService $clickUp = null): bool
+    {
+        if (!$assigneeId && !$assigneeEmail) {
+            return true;
+        }
+
+        $collections = [
+            data_get($space, 'members', []),
+            data_get($space, 'memberships', []),
+        ];
+
+        $hasMembershipData = false;
+
+        foreach ($collections as $collection) {
+            if (!is_array($collection)) {
+                continue;
+            }
+            foreach ($collection as $member) {
+                if (!is_array($member)) {
+                    continue;
+                }
+
+                $hasMembershipData = true;
+
+                $memberIds = [
+                    data_get($member, 'id'),
+                    data_get($member, 'user.id'),
+                    data_get($member, 'user_id'),
+                ];
+                foreach ($memberIds as $memberId) {
+                    if ($assigneeId && $memberId !== null && (string) $memberId === $assigneeId) {
+                        return true;
+                    }
+                }
+
+                $memberEmails = [
+                    data_get($member, 'email'),
+                    data_get($member, 'user.email'),
+                ];
+                foreach ($memberEmails as $memberEmail) {
+                    if (
+                        $assigneeEmail
+                        && $memberEmail !== null
+                        && strcasecmp((string) $memberEmail, $assigneeEmail) === 0
+                    ) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        // If no membership data in the list response, fetch detailed space info to check membership
+        if (!$hasMembershipData && $clickUp) {
+            $spaceId = (string) (data_get($space, 'id') ?? '');
+            if ($spaceId !== '') {
+                $detailedSpace = $clickUp->getSpace($spaceId);
+                if ($detailedSpace) {
+                    // Check membership in detailed space data
+                    $detailedCollections = [
+                        data_get($detailedSpace, 'members', []),
+                        data_get($detailedSpace, 'memberships', []),
+                    ];
+
+                    foreach ($detailedCollections as $collection) {
+                        if (!is_array($collection)) {
+                            continue;
+                        }
+                        foreach ($collection as $member) {
+                            if (!is_array($member)) {
+                                continue;
+                            }
+
+                            $memberIds = [
+                                data_get($member, 'id'),
+                                data_get($member, 'user.id'),
+                                data_get($member, 'user_id'),
+                            ];
+                            foreach ($memberIds as $memberId) {
+                                if ($assigneeId && $memberId !== null && (string) $memberId === $assigneeId) {
+                                    \Log::debug('ClickUp space membership verified via detailed fetch (ID match)', [
+                                        'spaceId' => $spaceId,
+                                        'assigneeId' => $assigneeId,
+                                    ]);
+                                    return true;
+                                }
+                            }
+
+                            $memberEmails = [
+                                data_get($member, 'email'),
+                                data_get($member, 'user.email'),
+                            ];
+                            foreach ($memberEmails as $memberEmail) {
+                                if (
+                                    $assigneeEmail
+                                    && $memberEmail !== null
+                                    && strcasecmp((string) $memberEmail, $assigneeEmail) === 0
+                                ) {
+                                    \Log::debug('ClickUp space membership verified via detailed fetch (email match)', [
+                                        'spaceId' => $spaceId,
+                                        'assigneeEmail' => $assigneeEmail,
+                                    ]);
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                    // User not found in detailed space members
+                    \Log::debug('ClickUp space excluded - user not found in members', [
+                        'spaceId' => $spaceId,
+                        'assigneeId' => $assigneeId,
+                        'assigneeEmail' => $assigneeEmail,
+                    ]);
+                } else {
+                    // Detailed space fetch failed
+                    \Log::debug('ClickUp space excluded - detailed fetch failed', [
+                        'spaceId' => $spaceId,
+                    ]);
+                }
+                // If detailed space fetch failed or user not found in members, exclude the space
+                return false;
+            }
+        }
+
+        // If we had membership data but user wasn't found, exclude the space
+        // If we had no membership data and couldn't verify access, exclude to be safe
+        return false;
     }
 
     /**

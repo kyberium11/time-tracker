@@ -486,6 +486,41 @@ class ClickUpService
         }
     }
 
+    /**
+     * Get detailed information about a specific ClickUp space, including membership data.
+     */
+    public function getSpace(string $spaceId): ?array
+    {
+        $headers = [
+            'Authorization' => (string) $this->apiToken,
+            'Accept' => 'application/json',
+        ];
+
+        try {
+            $response = Http::withHeaders($headers)
+                ->timeout(10)
+                ->get('https://api.clickup.com/api/v2/space/' . $spaceId);
+
+            if ($response->failed()) {
+                Log::warning('ClickUp get space failed', [
+                    'spaceId' => $spaceId,
+                    'status' => $response->status(),
+                    'body' => $response->body(),
+                ]);
+                return null;
+            }
+
+            $data = $response->json();
+            return is_array($data) ? $data : null;
+        } catch (\Throwable $e) {
+            Log::warning('ClickUp get space exception', [
+                'spaceId' => $spaceId,
+                'message' => $e->getMessage(),
+            ]);
+            return null;
+        }
+    }
+
     public function listTeamTasksByAssignee(string $teamId, ?string $assigneeId = null, ?string $assigneeEmail = null, array $extraQuery = []): array
     {
         return $this->listTasksByScope('team/' . $teamId, $assigneeId, $assigneeEmail, $extraQuery);
