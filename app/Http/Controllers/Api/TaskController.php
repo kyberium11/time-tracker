@@ -168,9 +168,196 @@ class TaskController extends Controller
     }
 
     /**
+     * Get space information and check if user is a member.
+     */
+    public function getClickUpSpaceInfo(string $spaceId, ClickUpService $clickUp)
+    {
+        $user = Auth::user();
+        if (!$user) {
+            return response()->json(['error' => 'Unauthorized'], 401);
+        }
+
+        try {
+            $space = $clickUp->getSpace($spaceId);
+            if (!$space) {
+                return response()->json(['error' => 'Space not found'], 404);
+            }
+
+            $clickUpUserId = $user->clickup_user_id ? (string) $user->clickup_user_id : null;
+            $clickUpEmail = $user->email ? (string) $user->email : null;
+
+            // Check if user is a member
+            $isMember = $this->clickUpSpaceIncludesUser($space, $clickUpUserId, $clickUpEmail, $clickUp);
+
+            return response()->json([
+                'space_id' => $spaceId,
+                'name' => (string) (data_get($space, 'name') ?? ('Space ' . $spaceId)),
+                'is_member' => $isMember,
+            ]);
+        } catch (\Throwable $e) {
+            \Log::error('Failed to get ClickUp space info', [
+                'userId' => $user->id,
+                'spaceId' => $spaceId,
+                'error' => $e->getMessage(),
+            ]);
+            return response()->json(['error' => 'Failed to get space information: ' . $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Sync tasks from a single ClickUp space.
+     */
+    public function syncClickUpSpace(string $spaceId, ClickUpService $clickUp)
+    {
+        $user = Auth::user();
+        if (!$user) {
+            return response()->json(['error' => 'Unauthorized'], 401);
+        }
+
+        $assigneeId = $user->clickup_user_id ? (string) $user->clickup_user_id : null;
+        $assigneeEmail = !$assigneeId ? (string) $user->email : null;
+
+        $allTasks = [];
+        $seen = [];
+
+        $collectTasks = function (array $tasksChunk) use (&$allTasks, &$seen) {
+            foreach ($tasksChunk as $t) {
+                $tid = (string) (data_get($t, 'id') ?? '');
+                if ($tid !== '' && !isset($seen[$tid])) {
+                    $seen[$tid] = true;
+                    $allTasks[] = $t;
+                }
+            }
+        };
+
+        try {
+            $tasksChunk = $clickUp->listSpaceTasksByAssignee((string) $spaceId, $assigneeId, $assigneeEmail, []);
+            $collectTasks($tasksChunk);
+        } catch (\Throwable $e) {
+            \Log::error('Failed to fetch tasks from ClickUp space', [
+                'spaceId' => $spaceId,
+                'assigneeId' => $assigneeId,
+                'assigneeEmail' => $assigneeEmail,
+                'error' => $e->getMessage(),
+            ]);
+            return response()->json(['error' => 'Failed to fetch tasks: ' . $e->getMessage()], 500);
+        }
+
+        $tasks = $allTasks;
+
+        $created = [];
+        $updated = [];
+        $unchanged = 0;
+        $skipped = [];
+
+        foreach ($tasks as $t) {
+            $taskId = (string) (data_get($t, 'id') ?? '');
+            if ($taskId === '') {
+                $skipped[] = [
+                    'id' => '(unknown)',
+                    'reason' => 'Missing task ID from ClickUp payload',
+                ];
+                continue;
+            }
+
+            if (!$this->clickUpTaskMatchesAssignee($t, $assigneeId, $assigneeEmail)) {
+                $skipped[] = [
+                    'id' => $taskId,
+                    'reason' => 'Task not assigned to the authenticated user',
+                ];
+                continue;
+            }
+
+            $clickupName = (string) (data_get($t, 'name') ?: ('Task ' . $taskId));
+            $clickupUrl = (string) (data_get($t, 'url') ?: ('https://app.clickup.com/t/' . $taskId));
+            $displayTitle = trim($clickupName . ' - ' . $clickupUrl);
+            $priority = (string) (
+                data_get($t, 'priority.label')
+                ?: data_get($t, 'priority.priority')
+                ?: data_get($t, 'priority')
+                ?: ''
+            ) ?: null;
+            $dueDate = ($ms = data_get($t, 'due_date')) ? Carbon::createFromTimestampMs((int) $ms) : null;
+            
+            $listId = (string) (data_get($t, 'list.id') ?? '');
+            $listName = (string) (data_get($t, 'list.name') ?? '');
+
+            $task = Task::firstOrNew(['clickup_task_id' => $taskId]);
+            $wasCreated = !$task->exists;
+
+            $estimatedTime = null;
+            if (data_get($t, 'time_estimate')) {
+                $estimatedTime = (int) data_get($t, 'time_estimate');
+            } elseif (data_get($t, 'time_estimates.total_estimate')) {
+                $estimatedTime = (int) data_get($t, 'time_estimates.total_estimate');
+            } elseif (data_get($t, 'time_estimates.total_estimated')) {
+                $estimatedTime = (int) data_get($t, 'time_estimates.total_estimated');
+            }
+
+            $task->fill([
+                'user_id' => $user->id,
+                'title' => $displayTitle,
+                'description' => (string) data_get($t, 'text_content'),
+                'status' => (string) data_get($t, 'status.status'),
+                'priority' => $priority,
+                'clickup_parent_id' => (string) (data_get($t, 'parent') ?: null),
+                'clickup_list_id' => $listId ?: null,
+                'clickup_list_name' => $listName ?: null,
+                'due_date' => $dueDate,
+                'estimated_time' => $estimatedTime,
+            ]);
+
+            $dirty = $task->isDirty();
+            $task->save();
+
+            $taskPayload = [
+                'id' => $taskId,
+                'title' => $task->title,
+                'status' => $task->status,
+                'priority' => $task->priority,
+                'due_date' => $task->due_date ? $task->due_date->toIso8601String() : null,
+            ];
+
+            if ($wasCreated) {
+                $created[] = $taskPayload;
+            } elseif ($dirty) {
+                $updated[] = $taskPayload;
+            } else {
+                $unchanged++;
+            }
+        }
+
+        $summary = [
+            'total' => count($created) + count($updated) + $unchanged,
+            'created' => count($created),
+            'updated' => count($updated),
+            'unchanged' => $unchanged,
+            'skipped' => count($skipped),
+        ];
+
+        return response()->json([
+            'ok' => true,
+            'summary' => $summary,
+            'created' => $created,
+            'updated' => $updated,
+            'skipped' => $skipped,
+            'space_id' => $spaceId,
+        ]);
+    }
+
+    /**
+     * Get configured space IDs for sequential syncing.
+     */
+    public function getConfiguredSpaceIds()
+    {
+        $spaceIds = ClickUpConfig::spaceIds();
+        return response()->json(['space_ids' => $spaceIds]);
+    }
+
+    /**
      * Manually sync the authenticated user's tasks from ClickUp.
      */
-    public function syncMyClickUpTasks(ClickUpService $clickUp)
+    public function syncMyClickUpTasks(Request $request, ClickUpService $clickUp)
     {
         $user = Auth::user();
         if (!$user) {

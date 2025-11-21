@@ -37,6 +37,9 @@ Route::middleware(['auth:sanctum'])->group(function () {
     Route::get('/my/tasks', [TaskController::class, 'myTasks']);
     Route::get('/my/tasks/break', [TaskController::class, 'myBreakTask']);
     Route::get('/my/clickup/spaces', [TaskController::class, 'myClickUpSpaces']);
+    Route::get('/my/clickup/configured-spaces', [TaskController::class, 'getConfiguredSpaceIds']);
+    Route::get('/my/clickup/space/{spaceId}/info', [TaskController::class, 'getClickUpSpaceInfo']);
+    Route::post('/my/clickup/space/{spaceId}/sync', [TaskController::class, 'syncClickUpSpace']);
     Route::post('/my/clickup/sync-tasks', [TaskController::class, 'syncMyClickUpTasks']);
     Route::get('/tasks/{id}/sync', [TaskController::class, 'sync']);
 

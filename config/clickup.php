@@ -10,6 +10,10 @@ return [
         explode(',', (string) env('CLICKUP_TEAM_IDS', ''))
     ))),
     'space_id' => env('CLICKUP_SPACE_ID'),
+    'space_ids' => array_values(array_filter(array_map(
+        static fn($value) => trim((string) $value),
+        explode(',', (string) env('CLICKUP_SPACE_IDS', ''))
+    ))),
 
     'allow_unverified' => env('CLICKUP_ALLOW_UNVERIFIED', env('APP_ENV', 'production') === 'local'),
     'push_time_entries' => (bool) env('CLICKUP_PUSH_TIME_ENTRIES', false),

@@ -84,6 +84,20 @@ const selectedSpaceIds = ref<string[]>([]);
 const hasSpaceOptions = computed(() => spaceOptions.value.length > 0);
 const allSpacesSelected = computed(() => hasSpaceOptions.value && selectedSpaceIds.value.length === spaceOptions.value.length);
 
+// Sequential space sync state
+const sequentialSyncActive = ref(false);
+const currentSpaceIndex = ref(0);
+const configuredSpaceIds = ref<string[]>([]);
+const currentSpaceInfo = ref<{ space_id: string; name: string; is_member: boolean } | null>(null);
+const spaceSyncProgress = ref<{
+    current: number;
+    total: number;
+    spaceName: string;
+    status: 'checking' | 'syncing' | 'completed' | 'skipped' | 'error';
+    result?: any;
+} | null>(null);
+const spaceSyncResults = ref<Array<{ space_id: string; name: string; result: any }>>([]);
+
 // Tab system for employees
 const activeTab = ref<'dashboard' | 'time-entries'>('dashboard');
 
@@ -536,9 +550,194 @@ const loadAvailableClickUpSpaces = async (forceReload = false) => {
 };
 
 const openSpaceSelectionModal = async () => {
-    if (taskSyncLoading.value) return;
-    showSpaceSelectionModal.value = true;
-    await loadAvailableClickUpSpaces(true);
+    if (taskSyncLoading.value || sequentialSyncActive.value) return;
+    await startSequentialSpaceSync();
+};
+
+const startSequentialSpaceSync = async () => {
+    if (sequentialSyncActive.value) return;
+    
+    sequentialSyncActive.value = true;
+    spaceSyncResults.value = [];
+    currentSpaceIndex.value = 0;
+    spaceSyncProgress.value = null;
+    
+    try {
+        // Get configured space IDs from backend
+        const res = await api.get('/my/clickup/configured-spaces');
+        configuredSpaceIds.value = res.data?.space_ids || [];
+        
+        if (configuredSpaceIds.value.length === 0) {
+            alert('No ClickUp spaces configured. Please set CLICKUP_SPACE_IDS in your environment variables.');
+            sequentialSyncActive.value = false;
+            return;
+        }
+        
+        showSpaceSelectionModal.value = true;
+        await processNextSpace();
+    } catch (e: any) {
+        alert(e?.response?.data?.error || 'Failed to start space sync');
+        sequentialSyncActive.value = false;
+        showSpaceSelectionModal.value = false;
+    }
+};
+
+const processNextSpace = async () => {
+    if (currentSpaceIndex.value >= configuredSpaceIds.value.length) {
+        // All spaces processed
+        sequentialSyncActive.value = false;
+        showSpaceSelectionModal.value = false;
+        await fetchMyTasks();
+        
+        // Show summary
+        const totalSpaces = configuredSpaceIds.value.length;
+        const syncedSpaces = spaceSyncResults.value.filter(r => r.result?.ok).length;
+        const skippedSpaces = spaceSyncResults.value.filter(r => !r.result?.ok && r.result?.skipped).length;
+        
+        taskSyncResult.value = {
+            summary: {
+                total: spaceSyncResults.value.reduce((sum, r) => sum + (r.result?.summary?.total || 0), 0),
+                created: spaceSyncResults.value.reduce((sum, r) => sum + (r.result?.summary?.created || 0), 0),
+                updated: spaceSyncResults.value.reduce((sum, r) => sum + (r.result?.summary?.updated || 0), 0),
+                unchanged: spaceSyncResults.value.reduce((sum, r) => sum + (r.result?.summary?.unchanged || 0), 0),
+                skipped: spaceSyncResults.value.reduce((sum, r) => sum + (r.result?.summary?.skipped || 0), 0),
+            },
+            created: spaceSyncResults.value.flatMap(r => r.result?.created || []),
+            updated: spaceSyncResults.value.flatMap(r => r.result?.updated || []),
+            skipped: spaceSyncResults.value.flatMap(r => r.result?.skipped || []),
+            sources: spaceSyncResults.value.map(r => `Space: ${r.name} (${r.space_id})`),
+        };
+        showTaskSyncModal.value = true;
+        return;
+    }
+    
+    const spaceId = configuredSpaceIds.value[currentSpaceIndex.value];
+    
+    // Update progress
+    spaceSyncProgress.value = {
+        current: currentSpaceIndex.value + 1,
+        total: configuredSpaceIds.value.length,
+        spaceName: 'Loading...',
+        status: 'checking',
+    };
+    
+    try {
+        // Get space info and check membership
+        const infoRes = await api.get(`/my/clickup/space/${spaceId}/info`);
+        currentSpaceInfo.value = infoRes.data;
+        
+        if (!currentSpaceInfo.value) {
+            spaceSyncProgress.value.status = 'error';
+            spaceSyncResults.value.push({
+                space_id: spaceId,
+                name: 'Unknown',
+                result: { ok: false, error: 'Failed to get space info' },
+            });
+            currentSpaceIndex.value++;
+            setTimeout(() => {
+                processNextSpace();
+            }, 1000);
+            return;
+        }
+
+        spaceSyncProgress.value = {
+            ...spaceSyncProgress.value,
+            spaceName: currentSpaceInfo.value.name,
+        };
+        
+        if (!currentSpaceInfo.value.is_member) {
+            // User is not a member, skip
+            spaceSyncProgress.value.status = 'skipped';
+            spaceSyncResults.value.push({
+                space_id: spaceId,
+                name: currentSpaceInfo.value.name,
+                result: { ok: false, skipped: true, reason: 'User is not a member of this space' },
+            });
+            
+            currentSpaceIndex.value++;
+            // Auto-advance to next space after a short delay
+            setTimeout(() => {
+                processNextSpace();
+            }, 1000);
+            return;
+        }
+        
+        // User is a member - wait for approval
+        spaceSyncProgress.value.status = 'checking';
+    } catch (e: any) {
+        spaceSyncProgress.value.status = 'error';
+        spaceSyncResults.value.push({
+            space_id: spaceId,
+            name: 'Unknown',
+            result: { ok: false, error: e?.response?.data?.error || 'Failed to get space info' },
+        });
+        currentSpaceIndex.value++;
+        setTimeout(() => {
+            processNextSpace();
+        }, 1000);
+    }
+};
+
+const approveSpaceSync = async () => {
+    if (!currentSpaceInfo.value || !spaceSyncProgress.value) return;
+    
+    const spaceId = currentSpaceInfo.value.space_id;
+    if (!spaceId) return;
+    spaceSyncProgress.value.status = 'syncing';
+    
+    try {
+        const syncRes = await api.post(`/my/clickup/space/${spaceId}/sync`);
+        spaceSyncProgress.value.status = 'completed';
+        spaceSyncProgress.value.result = syncRes.data;
+        
+        spaceSyncResults.value.push({
+            space_id: spaceId,
+            name: currentSpaceInfo.value.name,
+            result: syncRes.data,
+        });
+        
+        currentSpaceIndex.value++;
+        // Move to next space after showing completion
+        setTimeout(() => {
+            processNextSpace();
+        }, 1500);
+    } catch (e: any) {
+        spaceSyncProgress.value.status = 'error';
+        spaceSyncResults.value.push({
+            space_id: spaceId,
+            name: currentSpaceInfo.value.name,
+            result: { ok: false, error: e?.response?.data?.error || 'Failed to sync space' },
+        });
+        currentSpaceIndex.value++;
+        setTimeout(() => {
+            processNextSpace();
+        }, 1500);
+    }
+};
+
+const skipSpaceSync = () => {
+    if (!currentSpaceInfo.value) return;
+    
+    const spaceId = currentSpaceInfo.value.space_id;
+    if (!spaceId) return;
+    
+    spaceSyncResults.value.push({
+        space_id: spaceId,
+        name: currentSpaceInfo.value.name,
+        result: { ok: false, skipped: true, reason: 'User skipped this space' },
+    });
+    
+    currentSpaceIndex.value++;
+    processNextSpace();
+};
+
+const cancelSequentialSync = () => {
+    sequentialSyncActive.value = false;
+    showSpaceSelectionModal.value = false;
+    currentSpaceIndex.value = 0;
+    spaceSyncProgress.value = null;
+    currentSpaceInfo.value = null;
+    spaceSyncResults.value = [];
 };
 
 const toggleSelectAllSpaces = () => {
@@ -1929,78 +2128,135 @@ const formatTaskContent = (content: string | null | undefined) => {
                 </div>
             </div>
 
-            <!-- ClickUp Space Selection Modal -->
+            <!-- Sequential ClickUp Space Sync Modal -->
             <div v-if="showSpaceSelectionModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
                 <div class="w-full max-w-lg rounded-lg bg-white shadow-xl">
                     <div class="flex items-center justify-between border-b px-5 py-3">
-                        <h4 class="text-md font-semibold text-gray-900">Select ClickUp Spaces</h4>
-                        <button @click="showSpaceSelectionModal = false" class="rounded-md bg-gray-100 px-2 py-1 text-xs hover:bg-gray-200">Close</button>
+                        <h4 class="text-md font-semibold text-gray-900">Sync ClickUp Spaces</h4>
+                        <button @click="cancelSequentialSync" :disabled="sequentialSyncActive && spaceSyncProgress?.status === 'syncing'" class="rounded-md bg-gray-100 px-2 py-1 text-xs hover:bg-gray-200 disabled:opacity-50">Cancel</button>
                     </div>
                     <div class="p-5 space-y-4 text-sm text-gray-700">
-                        <p>Select the ClickUp spaces you want to sync tasks from. Limiting the sync to specific spaces reduces the chance of hitting ClickUp rate limits.</p>
-
-                        <div v-if="spaceSelectionLoading" class="flex items-center gap-2 text-sm text-gray-500">
-                            <span class="h-3 w-3 rounded-full border-2 border-gray-300 border-t-indigo-600 animate-spin"></span>
-                            <span>Loading spaces…</span>
-                        </div>
-
-                        <div v-else-if="spaceSelectionError" class="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700 space-y-3">
-                            <p>{{ spaceSelectionError }}</p>
-                            <div class="flex flex-wrap gap-2">
-                                <button @click="loadAvailableClickUpSpaces(true)" class="rounded-md bg-white px-3 py-1.5 text-xs font-medium text-red-700 shadow hover:bg-red-50">Try again</button>
-                                <button @click="syncAllSpacesFallback" class="rounded-md bg-red-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-700">Sync without filtering</button>
+                        <div v-if="spaceSyncProgress">
+                            <!-- Progress Header -->
+                            <div class="mb-4">
+                                <div class="flex items-center justify-between mb-2">
+                                    <span class="text-xs font-medium text-gray-600">
+                                        Space {{ spaceSyncProgress.current }} of {{ spaceSyncProgress.total }}
+                                    </span>
+                                    <span class="text-xs text-gray-500">
+                                        {{ Math.round((spaceSyncProgress.current / spaceSyncProgress.total) * 100) }}%
+                                    </span>
+                                </div>
+                                <div class="w-full bg-gray-200 rounded-full h-2">
+                                    <div
+                                        class="bg-indigo-600 h-2 rounded-full transition-all duration-300"
+                                        :style="{ width: `${(spaceSyncProgress.current / spaceSyncProgress.total) * 100}%` }"
+                                    ></div>
+                                </div>
                             </div>
-                        </div>
 
-                        <div v-else-if="!spaceOptions.length" class="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900 space-y-3">
-                            <p>No ClickUp spaces are available from the configured workspaces.</p>
-                            <button @click="syncAllSpacesFallback" class="rounded-md bg-amber-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-amber-700">Sync everything instead</button>
-                        </div>
+                            <!-- Current Space Info -->
+                            <div class="rounded-md border p-4 space-y-3" :class="{
+                                'border-blue-200 bg-blue-50': spaceSyncProgress.status === 'checking',
+                                'border-green-200 bg-green-50': spaceSyncProgress.status === 'completed',
+                                'border-yellow-200 bg-yellow-50': spaceSyncProgress.status === 'skipped',
+                                'border-red-200 bg-red-50': spaceSyncProgress.status === 'error',
+                                'border-indigo-200 bg-indigo-50': spaceSyncProgress.status === 'syncing',
+                            }">
+                                <div class="flex items-center gap-2">
+                                    <span
+                                        v-if="spaceSyncProgress.status === 'checking' || spaceSyncProgress.status === 'syncing'"
+                                        class="h-4 w-4 rounded-full border-2 border-current border-t-transparent animate-spin"
+                                    ></span>
+                                    <span
+                                        v-else-if="spaceSyncProgress.status === 'completed'"
+                                        class="text-green-600 text-lg"
+                                    >✓</span>
+                                    <span
+                                        v-else-if="spaceSyncProgress.status === 'skipped'"
+                                        class="text-yellow-600 text-lg"
+                                    >⊘</span>
+                                    <span
+                                        v-else-if="spaceSyncProgress.status === 'error'"
+                                        class="text-red-600 text-lg"
+                                    >✗</span>
+                                    <h5 class="font-semibold text-gray-900">{{ spaceSyncProgress.spaceName }}</h5>
+                                </div>
 
-                        <div v-else class="space-y-3">
-                            <div class="flex items-center justify-between text-xs text-gray-500">
-                                <span>{{ selectedSpaceIds.length }} of {{ spaceOptions.length }} selected</span>
-                                <button type="button" class="text-indigo-600 hover:text-indigo-800" @click="toggleSelectAllSpaces">
-                                    {{ allSpacesSelected ? 'Clear all' : 'Select all' }}
-                                </button>
-                            </div>
-                            <div class="max-h-72 overflow-y-auto space-y-2 pr-1">
-                                <label
-                                    v-for="space in spaceOptions"
-                                    :key="space.id"
-                                    class="flex items-start gap-3 rounded-md border border-gray-200 px-3 py-2 text-sm shadow-sm hover:border-indigo-300"
-                                >
-                                    <input
-                                        type="checkbox"
-                                        class="mt-1 h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-                                        :value="space.id"
-                                        v-model="selectedSpaceIds"
-                                    />
-                                    <div>
-                                        <p class="font-medium text-gray-900">
-                                            {{ space.name }}
-                                            <span class="text-xs text-gray-500">({{ space.id }})</span>
-                                        </p>
-                                        <p v-if="space.team_name || space.team_id" class="text-xs text-gray-500">
-                                            {{ space.team_name || ('Team ' + space.team_id) }}
-                                        </p>
+                                <!-- Status Messages -->
+                                <div v-if="spaceSyncProgress.status === 'checking' && currentSpaceInfo?.is_member === true" class="space-y-3">
+                                    <p class="text-sm text-gray-700">You are a member of this space. Would you like to sync tasks from it?</p>
+                                    <div class="flex gap-2">
+                                        <button
+                                            @click="approveSpaceSync"
+                                            class="flex-1 rounded-md bg-indigo-600 px-3 py-2 text-xs font-semibold text-white hover:bg-indigo-700"
+                                        >
+                                            Yes, Sync This Space
+                                        </button>
+                                        <button
+                                            @click="skipSpaceSync"
+                                            class="flex-1 rounded-md bg-gray-200 px-3 py-2 text-xs font-medium text-gray-700 hover:bg-gray-300"
+                                        >
+                                            Skip
+                                        </button>
                                     </div>
-                                </label>
+                                </div>
+
+                                <div v-else-if="spaceSyncProgress.status === 'checking' && currentSpaceInfo?.is_member === false" class="text-sm text-gray-600">
+                                    You are not a member of this space. Skipping...
+                                </div>
+
+                                <div v-else-if="spaceSyncProgress.status === 'syncing'" class="text-sm text-gray-600">
+                                    Syncing tasks from this space...
+                                </div>
+
+                                <div v-else-if="spaceSyncProgress.status === 'completed' && spaceSyncProgress.result" class="text-sm space-y-1">
+                                    <div class="font-medium text-green-700">Sync completed!</div>
+                                    <div class="text-xs text-gray-600">
+                                        Created: {{ spaceSyncProgress.result.summary?.created || 0 }},
+                                        Updated: {{ spaceSyncProgress.result.summary?.updated || 0 }},
+                                        Unchanged: {{ spaceSyncProgress.result.summary?.unchanged || 0 }}
+                                    </div>
+                                </div>
+
+                                <div v-else-if="spaceSyncProgress.status === 'skipped'" class="text-sm text-yellow-700">
+                                    This space was skipped.
+                                </div>
+
+                                <div v-else-if="spaceSyncProgress.status === 'error'" class="text-sm text-red-700">
+                                    An error occurred while processing this space.
+                                </div>
                             </div>
                         </div>
-                    </div>
-                    <div class="flex flex-wrap items-center justify-between gap-3 border-t bg-gray-50 px-5 py-3 text-xs text-gray-500">
-                        <p>Selecting fewer spaces can keep the sync fast and within ClickUp limits.</p>
-                        <div class="flex items-center gap-2 text-sm">
-                            <button @click="showSpaceSelectionModal = false" class="rounded-md bg-white px-3 py-1.5 text-xs font-medium text-gray-600 shadow hover:bg-gray-100">Cancel</button>
-                            <button
-                                @click="confirmSpaceSelection"
-                                :disabled="taskSyncLoading || spaceSelectionLoading || !selectedSpaceIds.length || !spaceOptions.length"
-                                class="rounded-md bg-green-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-60 flex items-center gap-2"
-                            >
-                                <span v-if="taskSyncLoading" class="h-3 w-3 rounded-full border-2 border-white border-t-transparent animate-spin"></span>
-                                <span>{{ taskSyncLoading ? 'Syncing…' : 'Sync selected' }}</span>
-                            </button>
+
+                        <!-- Completed Spaces Summary -->
+                        <div v-if="spaceSyncResults.length > 0" class="mt-4">
+                            <h6 class="text-xs font-medium text-gray-600 mb-2">Completed Spaces:</h6>
+                            <div class="max-h-32 overflow-y-auto space-y-1 text-xs">
+                                <div
+                                    v-for="(result, idx) in spaceSyncResults"
+                                    :key="idx"
+                                    class="flex items-center justify-between p-2 rounded bg-gray-50"
+                                >
+                                    <span class="text-gray-700">{{ result.name }}</span>
+                                    <span
+                                        class="px-2 py-0.5 rounded text-xs font-medium"
+                                        :class="{
+                                            'bg-green-100 text-green-700': result.result?.ok,
+                                            'bg-yellow-100 text-yellow-700': result.result?.skipped,
+                                            'bg-red-100 text-red-700': !result.result?.ok && !result.result?.skipped,
+                                        }"
+                                    >
+                                        {{ result.result?.ok ? 'Synced' : result.result?.skipped ? 'Skipped' : 'Error' }}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Loading Initial State -->
+                        <div v-if="!spaceSyncProgress && sequentialSyncActive" class="flex items-center gap-2 text-sm text-gray-500">
+                            <span class="h-3 w-3 rounded-full border-2 border-gray-300 border-t-indigo-600 animate-spin"></span>
+                            <span>Initializing space sync...</span>
                         </div>
                     </div>
                 </div>
