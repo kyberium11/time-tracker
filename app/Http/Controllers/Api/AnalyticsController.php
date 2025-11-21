@@ -1023,12 +1023,33 @@ class AnalyticsController extends Controller
         $user = Auth::user();
         $timezone = 'Asia/Manila';
 
-        $days = (int) $request->input('days', 5);
-        $days = max(1, min(14, $days));
+        $maxSpanDays = 31;
+        $daysParam = (int) $request->input('days', 5);
+        $daysParam = max(1, min(14, $daysParam));
 
-        $endDateLocal = Carbon::parse($request->input('end_date', now($timezone)->toDateString()), $timezone)
-            ->startOfDay();
-        $startDateLocal = $endDateLocal->copy()->subDays($days - 1);
+        $startInput = $request->input('start_date');
+        $endInput = $request->input('end_date');
+
+        if ($startInput || $endInput) {
+            $startDateLocal = $startInput
+                ? Carbon::parse($startInput, $timezone)->startOfDay()
+                : Carbon::parse($endInput, $timezone)->startOfDay()->copy()->subDays($daysParam - 1);
+
+            $endDateLocal = $endInput
+                ? Carbon::parse($endInput, $timezone)->startOfDay()
+                : $startDateLocal->copy()->addDays($daysParam - 1);
+        } else {
+            $endDateLocal = Carbon::parse(now($timezone)->toDateString(), $timezone)->startOfDay();
+            $startDateLocal = $endDateLocal->copy()->subDays($daysParam - 1);
+        }
+
+        if ($endDateLocal->lt($startDateLocal)) {
+            [$startDateLocal, $endDateLocal] = [$endDateLocal, $startDateLocal];
+        }
+
+        if ($startDateLocal->diffInDays($endDateLocal) >= $maxSpanDays) {
+            $endDateLocal = $startDateLocal->copy()->addDays($maxSpanDays - 1);
+        }
 
         $startDate = $startDateLocal->toDateString();
         $endDate = $endDateLocal->toDateString();

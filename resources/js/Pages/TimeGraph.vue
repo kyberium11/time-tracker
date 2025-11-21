@@ -3,24 +3,6 @@ import { ref, onMounted, computed } from 'vue';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head } from '@inertiajs/vue3';
 import api from '@/api';
-import { Bar } from 'vue-chartjs';
-import {
-    Chart as ChartJS,
-    CategoryScale,
-    LinearScale,
-    BarElement,
-    Tooltip,
-    Legend,
-} from 'chart.js';
-import type { ChartDataset, ChartData } from 'chart.js';
-
-ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend);
-
-type RangeDataPoint = {
-    x: [number, number];
-    y: string;
-    title?: string;
-};
 
 interface TimeGraphTask {
     title: string;
@@ -46,16 +28,40 @@ const loading = ref(true);
 const error = ref<string | null>(null);
 const days = ref<TimeGraphDay[]>([]);
 const timezone = ref<string>('Asia/Manila');
+const rangeSummary = ref<{ start: string; end: string }>({ start: '', end: '' });
+
+const filters = ref({
+    startDate: '',
+    endDate: '',
+});
+
+const formatInputDate = (date: Date) => date.toISOString().slice(0, 10);
+
+const initializeFilters = () => {
+    const end = new Date();
+    const start = new Date();
+    start.setDate(start.getDate() - 4);
+    filters.value.startDate = formatInputDate(start);
+    filters.value.endDate = formatInputDate(end);
+};
 
 const fetchData = async () => {
     loading.value = true;
     error.value = null;
     try {
+        const params: Record<string, string> = {};
+        if (filters.value.startDate) params.start_date = filters.value.startDate;
+        if (filters.value.endDate) params.end_date = filters.value.endDate;
+
         const { data } = await api.get<TimeGraphResponse>('/my/time-graph', {
-            params: { days: 5 },
+            params,
         });
         days.value = data.days || [];
         timezone.value = data.timezone || 'Asia/Manila';
+        rangeSummary.value = {
+            start: data.start_date,
+            end: data.end_date,
+        };
     } catch (e: any) {
         console.error(e);
         error.value =
@@ -66,113 +72,140 @@ const fetchData = async () => {
     }
 };
 
-onMounted(fetchData);
-
-const labels = computed(() => days.value.map((d) => d.label));
-
-const shiftDataset = computed<ChartDataset<'bar', RangeDataPoint[]>>(() => {
-    const data: RangeDataPoint[] = days.value.map((d) => {
-        if (!d.shift) {
-            return {
-                x: [0, 0],
-                y: d.label,
-            };
+const applyFilters = () => {
+    if (filters.value.startDate && filters.value.endDate) {
+        const start = new Date(filters.value.startDate);
+        const end = new Date(filters.value.endDate);
+        if (end < start) {
+            error.value = 'End date must be on or after the start date.';
+            return;
         }
-
-        return {
-            x: [d.shift.start_hour, d.shift.end_hour],
-            y: d.label,
-        };
-    });
-
-    return {
-        label: 'Shift',
-        data,
-        backgroundColor: 'rgba(59, 130, 246, 0.4)', // blue-500 with opacity
-        borderColor: 'rgba(59, 130, 246, 1)',
-        borderWidth: 1,
-        borderSkipped: false,
-        parsing: false,
-    } as unknown as ChartDataset<'bar', RangeDataPoint[]>;
-});
-
-const taskDataset = computed<ChartDataset<'bar', RangeDataPoint[]>>(() => {
-    const points: RangeDataPoint[] = [];
-    days.value.forEach((day) => {
-        day.tasks.forEach((t) => {
-            points.push({
-                x: [t.start_hour, t.end_hour],
-                y: day.label,
-                title: t.title,
-            });
-        });
-    });
-
-    return {
-        label: 'Tasks',
-        data: points,
-        backgroundColor: 'rgba(16, 185, 129, 0.7)', // emerald-500
-        borderColor: 'rgba(5, 150, 105, 1)',
-        borderWidth: 1,
-        borderSkipped: false,
-        parsing: false,
-    } as unknown as ChartDataset<'bar', RangeDataPoint[]>;
-});
-
-const chartData = computed(() => ({
-    labels: labels.value,
-    datasets: [shiftDataset.value, taskDataset.value],
-})) as unknown as ChartData<'bar'>;
-
-const hourToLabel = (value: number) => {
-    const wrapped = ((value % 24) + 24) % 24;
-    const hours = Math.floor(wrapped);
-    const suffix = hours >= 12 ? 'pm' : 'am';
-    const displayHour = ((hours + 11) % 12) + 1;
-    return `${displayHour}:00 ${suffix}`;
+        if ((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24) > 30) {
+            error.value = 'Please limit the range to 31 days or less.';
+            return;
+        }
+    }
+    fetchData();
 };
 
-const chartOptions = computed(() => ({
-    indexAxis: 'y' as const,
-    responsive: true,
-    maintainAspectRatio: false,
-    plugins: {
-        legend: {
-            position: 'top' as const,
+const resetFilters = () => {
+    initializeFilters();
+    fetchData();
+};
+
+onMounted(() => {
+    initializeFilters();
+    fetchData();
+});
+
+const wrapHour = (hour: number) => {
+    let value = hour;
+    while (value < 0) value += 24;
+    while (value >= 24) value -= 24;
+    return value;
+};
+
+const splitRange = (start: number, end: number) => {
+    const totalSpan = end - start;
+    if (totalSpan >= 24) {
+        return [{ start: 0, end: 24 }];
+    }
+
+    const normalizedStart = wrapHour(start);
+    let normalizedEnd = wrapHour(end);
+
+    if (end - start <= 0) {
+        return [
+            { start: normalizedStart, end: 24 },
+            { start: 0, end: normalizedEnd },
+        ];
+    }
+
+    if (normalizedEnd <= normalizedStart && end > start) {
+        normalizedEnd += 24;
+    }
+
+    if (normalizedEnd > 24) {
+        return [
+            { start: normalizedStart, end: 24 },
+            { start: 0, end: normalizedEnd - 24 },
+        ];
+    }
+
+    return [{ start: normalizedStart, end: normalizedEnd }];
+};
+
+const HOURS_IN_DAY = 24;
+
+const hourTicks = computed(() => {
+    const ticks: Array<{ label: string; value: number }> = [];
+    for (let i = 0; i <= HOURS_IN_DAY; i += 2) {
+        const suffix = i === 0 ? '12:00 am' : `${((i + 11) % 12) + 1}:00 ${i >= 12 ? 'pm' : 'am'}`;
+        ticks.push({ label: suffix, value: i });
+    }
+    return ticks;
+});
+
+const displayDays = computed(() =>
+    days.value.map((day) => {
+        const shiftSegments = day.shift
+            ? splitRange(day.shift.start_hour, day.shift.end_hour)
+            : [];
+
+        const taskSegments = day.tasks.flatMap((task) => {
+            const segments = splitRange(task.start_hour, task.end_hour);
+            return segments.map((segment) => ({
+                ...segment,
+                title: task.title,
+            }));
+        });
+
+        return {
+            ...day,
+            shiftSegments,
+            taskSegments,
+        };
+    })
+);
+
+const segmentStyle = (segment: { start: number; end: number }) => {
+    const width = ((segment.end - segment.start) / HOURS_IN_DAY) * 100;
+    return {
+        left: `${(segment.start / HOURS_IN_DAY) * 100}%`,
+        width: `${Math.max(width, 0)}%`,
+    };
+};
+
+const formattedRange = computed(() => {
+    if (!rangeSummary.value.start || !rangeSummary.value.end) return '';
+    const start = new Date(rangeSummary.value.start);
+    const end = new Date(rangeSummary.value.end);
+    const options: Intl.DateTimeFormatOptions = {
+        month: 'long',
+        day: 'numeric',
+        year: 'numeric',
+    };
+    return `${start.toLocaleDateString(undefined, options)} → ${end.toLocaleDateString(
+        undefined,
+        options
+    )}`;
+});
+
+const hasData = computed(() =>
+    displayDays.value.some(
+        (day) => day.shiftSegments.length > 0 || day.taskSegments.length > 0
+    )
+);
+
+const gridLines = computed(() =>
+    hourTicks.value.map((tick) => ({
+        ...tick,
+        style: {
+            left: `${(tick.value / HOURS_IN_DAY) * 100}%`,
         },
-        tooltip: {
-            callbacks: {
-                label: (ctx: any) => {
-                    const raw = ctx.raw as { x: [number, number]; y: string; title?: string };
-                    const [start, end] = raw.x;
-                    const title = raw.title || ctx.dataset.label || '';
-                    return `${title}: ${hourToLabel(start)} – ${hourToLabel(end)}`;
-                },
-            },
-        },
-    },
-    scales: {
-        x: {
-            type: 'linear' as const,
-            min: 0,
-            max: 24,
-            title: {
-                display: true,
-                text: 'Hours',
-            },
-            ticks: {
-                stepSize: 2,
-                callback: (val: any) => hourToLabel(Number(val)),
-            },
-        },
-        y: {
-            title: {
-                display: true,
-                text: 'Dates',
-            },
-        },
-    },
-}));
+    }))
+);
+
 </script>
 
 <template>
@@ -188,25 +221,60 @@ const chartOptions = computed(() => ({
         <div class="py-6">
             <div class="mx-auto max-w-7xl sm:px-6 lg:px-8">
                 <div class="overflow-hidden bg-white shadow-sm sm:rounded-lg">
-                    <div class="border-b border-gray-200 px-6 py-4 flex items-center justify-between">
-                        <div>
-                            <h3 class="text-lg font-medium text-gray-900">
-                                Shift and Task Schedule
-                            </h3>
-                            <p class="mt-1 text-sm text-gray-500">
-                                Last 5 days · Timezone:
-                                <span class="font-mono">{{ timezone }}</span>
-                            </p>
+                    <div class="border-b border-gray-200 px-6 py-4">
+                        <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                            <div>
+                                <h3 class="text-lg font-medium text-gray-900">
+                                    Shift and Task Schedule
+                                </h3>
+                                <p class="mt-1 text-sm text-gray-500">
+                                    <span v-if="formattedRange">{{ formattedRange }}</span>
+                                    <span v-else>Last 5 days</span>
+                                    · Timezone:
+                                    <span class="font-mono">{{ timezone }}</span>
+                                </p>
+                            </div>
+                            <div class="flex flex-wrap items-end gap-4">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">
+                                        Start Date
+                                    </label>
+                                    <input
+                                        type="date"
+                                        v-model="filters.startDate"
+                                        class="rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                    />
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">
+                                        End Date
+                                    </label>
+                                    <input
+                                        type="date"
+                                        v-model="filters.endDate"
+                                        class="rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                    />
+                                </div>
+                                <div class="flex gap-2">
+                                    <button
+                                        type="button"
+                                        class="inline-flex items-center rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 disabled:opacity-50"
+                                        @click="applyFilters"
+                                        :disabled="loading"
+                                    >
+                                        Apply
+                                    </button>
+                                    <button
+                                        type="button"
+                                        class="inline-flex items-center rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+                                        @click="resetFilters"
+                                        :disabled="loading"
+                                    >
+                                        Reset
+                                    </button>
+                                </div>
+                            </div>
                         </div>
-                        <button
-                            type="button"
-                            class="inline-flex items-center rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
-                            @click="fetchData"
-                            :disabled="loading"
-                        >
-                            <span v-if="!loading">Refresh</span>
-                            <span v-else>Loading…</span>
-                        </button>
                     </div>
 
                     <div class="px-6 py-4">
@@ -218,13 +286,59 @@ const chartOptions = computed(() => ({
                             <div class="inline-block h-10 w-10 animate-spin rounded-full border-b-2 border-indigo-600"></div>
                         </div>
 
-                        <div v-else class="space-y-4">
-                            <div v-if="days.length === 0" class="py-10 text-center text-sm text-gray-500">
-                                No data available for the selected period.
+                        <div v-else class="space-y-6">
+                            <div v-if="!hasData" class="py-10 text-center text-sm text-gray-500">
+                                No shift or task data for this period.
                             </div>
 
-                            <div v-else class="h-96 w-full">
-                                <Bar :data="chartData" :options="chartOptions" />
+                            <div v-else>
+                                <div class="mb-3 flex items-center text-xs text-gray-500">
+                                    <div class="w-36"></div>
+                                    <div class="flex-1">
+                                        <div class="flex justify-between text-[11px] font-medium">
+                                            <span v-for="tick in hourTicks" :key="tick.value">
+                                                {{ tick.label }}
+                                            </span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="space-y-4">
+                                    <div
+                                        v-for="day in displayDays"
+                                        :key="day.date"
+                                        class="flex items-center gap-4"
+                                    >
+                                        <div class="w-36 text-sm font-medium text-gray-700">
+                                            {{ day.label }}
+                                        </div>
+                                        <div class="flex-1">
+                                            <div class="relative h-12 rounded-md border border-gray-200 bg-gray-50">
+                                                <div
+                                                    v-for="tick in gridLines"
+                                                    :key="tick.value"
+                                                    class="absolute inset-y-0 border-l border-gray-200 last:border-r-0"
+                                                    :style="tick.style"
+                                                ></div>
+                                                <div
+                                                    v-for="(segment, idx) in day.shiftSegments"
+                                                    :key="`shift-${day.date}-${idx}`"
+                                                    class="absolute inset-y-1 rounded-md bg-sky-200 border border-sky-400"
+                                                    :style="segmentStyle(segment)"
+                                                ></div>
+                                                <div
+                                                    v-for="(segment, idx) in day.taskSegments"
+                                                    :key="`task-${day.date}-${idx}`"
+                                                    class="absolute top-2 h-6 rounded-md bg-emerald-400 border border-emerald-600 text-[11px] font-medium text-emerald-900 flex items-center justify-center px-1"
+                                                    :style="segmentStyle(segment)"
+                                                    :title="segment.title"
+                                                >
+                                                    <span class="truncate">{{ segment.title }}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
 
                             <div class="flex items-center gap-4 text-sm text-gray-600">
