@@ -137,6 +137,7 @@ const splitRange = (start: number, end: number) => {
 
 const HOURS_IN_DAY = 24;
 const zoomLevels = [4, 2, 1, 0.5]; // hours per grid interval
+const BASE_STEP = 2; // corresponds to default zoom index 1
 const zoomIndex = ref(1); // default 2-hour ticks
 
 const canZoomOut = computed(() => zoomIndex.value > 0);
@@ -162,6 +163,9 @@ const zoomLabel = computed(() => {
     }
     return `${Math.round(step * 60)} min`;
 });
+
+const zoomFactor = computed(() => BASE_STEP / currentStep.value);
+const timelineWidth = computed(() => `${Math.max(zoomFactor.value, 1) * 100}%`);
 
 const hourToLabel = (value: number) => {
     const wrapped = ((value % 24) + 24) % 24;
@@ -377,8 +381,11 @@ const gridLines = computed(() =>
                             <div v-else>
                                 <div class="mb-3 flex items-center text-xs text-gray-500">
                                     <div class="w-36"></div>
-                                    <div class="flex-1">
-                                        <div class="flex justify-between text-[11px] font-medium">
+                                    <div class="flex-1 overflow-x-auto">
+                                        <div
+                                            class="flex justify-between text-[11px] font-medium min-w-full"
+                                            :style="{ width: timelineWidth }"
+                                        >
                                             <span v-for="tick in hourTicks" :key="tick.value">
                                                 {{ tick.label }}
                                             </span>
@@ -395,8 +402,11 @@ const gridLines = computed(() =>
                                         <div class="w-36 text-sm font-medium text-gray-700">
                                             {{ day.label }}
                                         </div>
-                                        <div class="flex-1">
-                                            <div class="relative h-12 rounded-md border border-gray-200 bg-gray-50">
+                                        <div class="flex-1 overflow-x-auto">
+                                            <div
+                                                class="relative h-12 rounded-md border border-gray-200 bg-gray-50 min-w-full"
+                                                :style="{ width: timelineWidth }"
+                                            >
                                                 <div
                                                     v-for="tick in gridLines"
                                                     :key="tick.value"
