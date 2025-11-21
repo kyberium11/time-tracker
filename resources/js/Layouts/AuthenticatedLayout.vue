@@ -64,6 +64,14 @@ const showingNavigationDropdown = ref(false);
                                 </NavLink>
                                 
                                 <NavLink
+                                    v-if="$page.props.auth.user.role === 'employee' || $page.props.auth.user.role === 'admin' || $page.props.auth.user.role === 'manager' || $page.props.auth.user.role === 'developer'"
+                                    :href="route('time-graph.index')"
+                                    :active="route().current('time-graph.*')"
+                                >
+                                    Time Graph
+                                </NavLink>
+                                
+                                <NavLink
                                     v-if="$page.props.auth.user.role === 'admin'"
                                     :href="route('efficiency.index')"
                                     :active="route().current('efficiency.*')"
@@ -224,6 +232,14 @@ const showingNavigationDropdown = ref(false);
                             :active="route().current('analytics.*')"
                         >
                             Analytics
+                        </ResponsiveNavLink>
+                        
+                        <ResponsiveNavLink
+                            v-if="$page.props.auth.user.role === 'employee' || $page.props.auth.user.role === 'admin' || $page.props.auth.user.role === 'manager' || $page.props.auth.user.role === 'developer'"
+                            :href="route('time-graph.index')"
+                            :active="route().current('time-graph.*')"
+                        >
+                            Time Graph
                         </ResponsiveNavLink>
                         
                         <ResponsiveNavLink

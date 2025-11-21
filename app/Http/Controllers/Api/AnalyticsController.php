@@ -1012,6 +1012,112 @@ class AnalyticsController extends Controller
     }
 
     /**
+     * Time graph data for the authenticated user.
+     *
+     * Returns, for a short date range, the user's shift window (in local hours)
+     * and any task-based work entries overlaid on top of that window.
+     */
+    public function myTimeGraph(Request $request): \Illuminate\Http\JsonResponse
+    {
+        /** @var User $user */
+        $user = Auth::user();
+        $timezone = 'Asia/Manila';
+
+        $days = (int) $request->input('days', 5);
+        $days = max(1, min(14, $days));
+
+        $endDateLocal = Carbon::parse($request->input('end_date', now($timezone)->toDateString()), $timezone)
+            ->startOfDay();
+        $startDateLocal = $endDateLocal->copy()->subDays($days - 1);
+
+        $startDate = $startDateLocal->toDateString();
+        $endDate = $endDateLocal->toDateString();
+
+        // Fetch all work entries with tasks in the date range
+        $entries = TimeEntry::with('task')
+            ->where('user_id', $user->id)
+            ->whereBetween('date', [$startDate, $endDate])
+            ->where('entry_type', 'work')
+            ->whereNotNull('clock_in')
+            ->whereNotNull('clock_out')
+            ->orderBy('date')
+            ->orderBy('clock_in')
+            ->get()
+            ->groupBy('date');
+
+        $daysData = [];
+        $cursor = $startDateLocal->copy();
+        while ($cursor->lte($endDateLocal)) {
+            $dateStr = $cursor->toDateString();
+
+            // Determine shift for this date (if any)
+            $shift = $user->getShiftForDate($cursor);
+            $shiftData = null;
+            if ($shift && isset($shift['start'], $shift['end'])) {
+                $startParts = explode(':', $shift['start']);
+                $endParts = explode(':', $shift['end']);
+                $startHour = (int) ($startParts[0] ?? 0);
+                $startMinute = (int) ($startParts[1] ?? 0);
+                $endHour = (int) ($endParts[0] ?? 0);
+                $endMinute = (int) ($endParts[1] ?? 0);
+
+                $startDecimal = $startHour + $startMinute / 60;
+                $endDecimal = $endHour + $endMinute / 60;
+                // If shift spans midnight, extend past 24h
+                if ($endDecimal <= $startDecimal) {
+                    $endDecimal += 24;
+                }
+
+                $shiftData = [
+                    'start_hour' => $startDecimal,
+                    'end_hour' => $endDecimal,
+                ];
+            }
+
+            // Build task segments for this date
+            $taskSegments = [];
+            /** @var \Illuminate\Support\Collection $dayEntries */
+            $dayEntries = $entries->get($dateStr, collect());
+            foreach ($dayEntries as $entry) {
+                if (!$entry->task || (!$entry->task->title && !$entry->task->name)) {
+                    continue;
+                }
+
+                $cinLocal = Carbon::parse($entry->clock_in)->setTimezone($timezone);
+                $coutLocal = Carbon::parse($entry->clock_out)->setTimezone($timezone);
+
+                $startDecimal = $cinLocal->hour + $cinLocal->minute / 60;
+                $endDecimal = $coutLocal->hour + $coutLocal->minute / 60;
+                if ($endDecimal <= $startDecimal) {
+                    $endDecimal += 24;
+                }
+
+                $taskSegments[] = [
+                    'title' => $entry->task->title ?? $entry->task->name ?? 'Task',
+                    'start_hour' => $startDecimal,
+                    'end_hour' => $endDecimal,
+                ];
+            }
+
+            $daysData[] = [
+                'date' => $dateStr,
+                'label' => $cursor->format('F j, Y'),
+                'shift' => $shiftData,
+                'tasks' => $taskSegments,
+            ];
+
+            $cursor->addDay();
+        }
+
+        return response()->json([
+            'timezone' => $timezone,
+            'start_date' => $startDate,
+            'end_date' => $endDate,
+            'days' => $daysData,
+        ]);
+    }
+
+    /**
      * Get all individual entries with filters.
      */
     public function individualEntries(Request $request)

@@ -40,6 +40,10 @@ Route::middleware('auth')->group(function () {
         return Inertia::render('Teams');
     })->name('teams.index');
     
+    Route::get('/time-graph', function () {
+        return Inertia::render('TimeGraph');
+    })->name('time-graph.index');
+    
     Route::get('/analytics', function () {
         return Inertia::render('Analytics');
     })->name('analytics.index');

@@ -45,6 +45,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
 
     // My time entries (for employees)
     Route::get('/my/time-entries', [AnalyticsController::class, 'myTimeEntries']);
+    Route::get('/my/time-graph', [AnalyticsController::class, 'myTimeGraph']);
 
     // Task timers
     Route::post('/tasks/start', [TimeEntryController::class, 'startTask']);
