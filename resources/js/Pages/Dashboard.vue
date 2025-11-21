@@ -1366,60 +1366,52 @@ const loadTimeEntries = async () => {
             const hasTask = e.task && (e.task.title || e.task.name);
             const isClosed = Boolean(cout);
             
-            // Work Hours entry (no task)
-            if (!hasTask) {
-                if (isClosed && cout) {
-                    const workDur = Math.max(0, Math.floor((cout.getTime() - cin.getTime()) / 1000));
-                    rawWorkSeconds += workDur;
-                    
-                    // Subtract lunch if present
-                    const ls = parseDateTime(e.lunch_start);
-                    const le = parseDateTime(e.lunch_end);
-                    let lunchDur = 0;
-                    if (ls && le) {
-                        lunchDur = Math.max(0, Math.floor((le.getTime() - ls.getTime()) / 1000));
-                    }
-                    
-                    const netWorkDur = Math.max(0, workDur - lunchDur);
-                    
-                    timeEntriesRows.value.push({
-                        name: 'Work Hours',
-                        start: startStr,
-                        end: endStr,
-                        durationSeconds: netWorkDur,
-                        breakDurationSeconds: 0, // Breaks are now separate entries
-                        notes: '-'
-                    });
-                } else {
-                    // Active entry - calculate running time
-                    let runningSeconds = Math.max(0, Math.floor((now.getTime() - cin.getTime()) / 1000));
-                    
-                    // Subtract lunch time if present
-                    const ls = parseDateTime(e.lunch_start);
-                    const le = parseDateTime(e.lunch_end);
-                    let lunchDur = 0;
-                    if (ls && le) {
-                        // Lunch completed
-                        lunchDur = Math.max(0, Math.floor((le.getTime() - ls.getTime()) / 1000));
-                    } else if (ls && !le) {
-                        // Currently on lunch - subtract current lunch time
-                        lunchDur = Math.max(0, Math.floor((now.getTime() - ls.getTime()) / 1000));
-                    }
-                    
-                    const netWorkDur = Math.max(0, runningSeconds - lunchDur);
-                    
-                    timeEntriesRows.value.push({
-                        name: 'Work Hours',
-                        start: startStr,
-                        end: null,
-                        durationSeconds: netWorkDur,
-                        breakDurationSeconds: 0,
-                        notes: 'In progress'
-                    });
-                }
+            // Calculate work duration (for both Work Hours and Task entries)
+            let workDur = 0;
+            let runningSeconds = 0;
+            if (isClosed && cout) {
+                workDur = Math.max(0, Math.floor((cout.getTime() - cin.getTime()) / 1000));
+            } else {
+                runningSeconds = Math.max(0, Math.floor((now.getTime() - cin.getTime()) / 1000));
             }
             
-            // Task entry
+            // Calculate lunch duration
+            const ls = parseDateTime(e.lunch_start);
+            const le = parseDateTime(e.lunch_end);
+            let lunchDur = 0;
+            if (ls && le) {
+                // Lunch completed
+                lunchDur = Math.max(0, Math.floor((le.getTime() - ls.getTime()) / 1000));
+            } else if (ls && !le) {
+                // Currently on lunch - subtract current lunch time
+                lunchDur = Math.max(0, Math.floor((now.getTime() - ls.getTime()) / 1000));
+            }
+            
+            // Calculate net work duration (work time minus lunch)
+            const netWorkDur = isClosed ? Math.max(0, workDur - lunchDur) : Math.max(0, runningSeconds - lunchDur);
+            
+            // Always create a "Work Hours" entry for all work entries (with or without tasks)
+            if (isClosed && cout) {
+                timeEntriesRows.value.push({
+                    name: 'Work Hours',
+                    start: startStr,
+                    end: endStr,
+                    durationSeconds: netWorkDur,
+                    breakDurationSeconds: 0, // Breaks are now separate entries
+                    notes: '-'
+                });
+            } else {
+                timeEntriesRows.value.push({
+                    name: 'Work Hours',
+                    start: startStr,
+                    end: null,
+                    durationSeconds: netWorkDur,
+                    breakDurationSeconds: 0,
+                    notes: 'In progress'
+                });
+            }
+            
+            // If entry has a task, also create a task entry row
             if (hasTask) {
                 const taskName = e.task.title || e.task.name;
                 if (isClosed && cout) {
@@ -1433,7 +1425,6 @@ const loadTimeEntries = async () => {
                         notes: '-'
                     });
                 } else {
-                    const runningSeconds = Math.max(0, Math.floor((now.getTime() - cin.getTime()) / 1000));
                     timeEntriesRows.value.push({
                         name: taskName,
                         start: startStr,
