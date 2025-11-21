@@ -1366,7 +1366,7 @@ const loadTimeEntries = async () => {
             const hasTask = e.task && (e.task.title || e.task.name);
             const isClosed = Boolean(cout);
             
-            // Calculate work duration (for both Work Hours and Task entries)
+            // Calculate work duration
             let workDur = 0;
             let runningSeconds = 0;
             if (isClosed && cout) {
@@ -1390,7 +1390,8 @@ const loadTimeEntries = async () => {
             // Calculate net work duration (work time minus lunch)
             const netWorkDur = isClosed ? Math.max(0, workDur - lunchDur) : Math.max(0, runningSeconds - lunchDur);
             
-            // Always create a "Work Hours" entry for all work entries (with or without tasks)
+            // Always create a "Work Hours" entry for each clock-in/clock-out pair
+            // This represents the overall work session (Time In to Time Out)
             if (isClosed && cout) {
                 timeEntriesRows.value.push({
                     name: 'Work Hours',
@@ -1411,7 +1412,8 @@ const loadTimeEntries = async () => {
                 });
             }
             
-            // If entry has a task, also create a task entry row
+            // If entry has a task, also create a separate task entry row
+            // Task entries are separate from Work Hours entries
             if (hasTask) {
                 const taskName = e.task.title || e.task.name;
                 if (isClosed && cout) {
