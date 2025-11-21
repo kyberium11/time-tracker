@@ -1064,7 +1064,9 @@ class AnalyticsController extends Controller
             ->orderBy('date')
             ->orderBy('clock_in')
             ->get()
-            ->groupBy('date');
+            ->groupBy(function ($entry) {
+                return Carbon::parse($entry->date)->toDateString();
+            });
 
         $daysData = [];
         $cursor = $startDateLocal->copy();
