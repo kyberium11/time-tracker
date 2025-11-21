@@ -825,8 +825,9 @@ class AnalyticsController extends Controller
             $hasTask = $entry->task_id && $entry->task && ($entry->task->title || $entry->task->name);
             
             // Count all work entries (with or without tasks) for total work time
-            // Only count entries that are closed (have clock_out) for accurate totals
+            // Include both closed entries and active entries (currently clocked in)
             if ($entry->clock_in && $entry->clock_out) {
+                // Closed entry - use actual clock_out time
                 $clockInUtc = \Carbon\Carbon::parse($entry->clock_in);
                 $clockOutUtc = \Carbon\Carbon::parse($entry->clock_out);
                 $seconds = max(0, $clockOutUtc->diffInSeconds($clockInUtc));
@@ -851,10 +852,32 @@ class AnalyticsController extends Controller
                     $workSeconds -= $lunchDur;
                 }
             } elseif ($entry->clock_in && !$entry->clock_out) {
-                // Entry is in progress - track first in for status (but don't count in work seconds yet)
+                // Entry is in progress - include current time in work seconds
                 $clockInUtc = \Carbon\Carbon::parse($entry->clock_in);
+                $now = \Carbon\Carbon::now('UTC');
+                $seconds = max(0, $now->diffInSeconds($clockInUtc));
+                
+                // Add current time to work seconds
+                $workSeconds += $seconds;
+                
+                // Track first in for status calculation
                 if (!$firstIn || $clockInUtc->lt($firstIn)) {
                     $firstIn = $clockInUtc;
+                }
+                
+                // If there's an active lunch, subtract current lunch time
+                if ($entry->lunch_start && !$entry->lunch_end) {
+                    $ls = \Carbon\Carbon::parse($entry->lunch_start);
+                    $lunchDur = max(0, $now->diffInSeconds($ls));
+                    $lunchSeconds += $lunchDur;
+                    $workSeconds -= $lunchDur;
+                } elseif ($entry->lunch_start && $entry->lunch_end) {
+                    // Lunch completed - subtract total lunch time
+                    $ls = \Carbon\Carbon::parse($entry->lunch_start);
+                    $le = \Carbon\Carbon::parse($entry->lunch_end);
+                    $lunchDur = max(0, $le->diffInSeconds($ls));
+                    $lunchSeconds += $lunchDur;
+                    $workSeconds -= $lunchDur;
                 }
             }
             
@@ -869,7 +892,8 @@ class AnalyticsController extends Controller
         $status = 'No Entry';
         $overtimeSeconds = 0;
         
-        if ($firstIn && $lastOut && count($entries) > 0) {
+        // Calculate status if we have at least a first clock in (even if still clocked in)
+        if ($firstIn && count($entries) > 0) {
             // Get shift for the date (use the date from the request, not firstIn)
             $shift = $user->getShiftForDate($startDate);
             

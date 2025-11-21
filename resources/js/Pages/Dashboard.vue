@@ -1391,12 +1391,28 @@ const loadTimeEntries = async () => {
                         notes: '-'
                     });
                 } else {
-                    const runningSeconds = Math.max(0, Math.floor((now.getTime() - cin.getTime()) / 1000));
+                    // Active entry - calculate running time
+                    let runningSeconds = Math.max(0, Math.floor((now.getTime() - cin.getTime()) / 1000));
+                    
+                    // Subtract lunch time if present
+                    const ls = parseDateTime(e.lunch_start);
+                    const le = parseDateTime(e.lunch_end);
+                    let lunchDur = 0;
+                    if (ls && le) {
+                        // Lunch completed
+                        lunchDur = Math.max(0, Math.floor((le.getTime() - ls.getTime()) / 1000));
+                    } else if (ls && !le) {
+                        // Currently on lunch - subtract current lunch time
+                        lunchDur = Math.max(0, Math.floor((now.getTime() - ls.getTime()) / 1000));
+                    }
+                    
+                    const netWorkDur = Math.max(0, runningSeconds - lunchDur);
+                    
                     timeEntriesRows.value.push({
                         name: 'Work Hours',
                         start: startStr,
                         end: null,
-                        durationSeconds: runningSeconds,
+                        durationSeconds: netWorkDur,
                         breakDurationSeconds: 0,
                         notes: 'In progress'
                     });
