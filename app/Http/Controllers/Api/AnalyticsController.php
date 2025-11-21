@@ -1097,15 +1097,12 @@ class AnalyticsController extends Controller
                 ];
             }
 
-            // Build task segments for this date
+            // Build work-hour and task segments for this date
             $taskSegments = [];
+            $workSegments = [];
             /** @var \Illuminate\Support\Collection $dayEntries */
             $dayEntries = $entries->get($dateStr, collect());
             foreach ($dayEntries as $entry) {
-                if (!$entry->task || (!$entry->task->title && !$entry->task->name)) {
-                    continue;
-                }
-
                 $cinLocal = Carbon::parse($entry->clock_in)->setTimezone($timezone);
                 $coutLocal = Carbon::parse($entry->clock_out)->setTimezone($timezone);
 
@@ -1115,17 +1112,26 @@ class AnalyticsController extends Controller
                     $endDecimal += 24;
                 }
 
-                $taskSegments[] = [
-                    'title' => $entry->task->title ?? $entry->task->name ?? 'Task',
+                $workSegments[] = [
+                    'title' => 'Work Hours',
                     'start_hour' => $startDecimal,
                     'end_hour' => $endDecimal,
                 ];
+
+                if ($entry->task && ($entry->task->title || $entry->task->name)) {
+                    $taskSegments[] = [
+                        'title' => $entry->task->title ?? $entry->task->name ?? 'Task',
+                        'start_hour' => $startDecimal,
+                        'end_hour' => $endDecimal,
+                    ];
+                }
             }
 
             $daysData[] = [
                 'date' => $dateStr,
                 'label' => $cursor->format('F j, Y'),
                 'shift' => $shiftData,
+                'work_hours' => $workSegments,
                 'tasks' => $taskSegments,
             ];
 

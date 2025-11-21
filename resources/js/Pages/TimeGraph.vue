@@ -4,8 +4,8 @@ import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head } from '@inertiajs/vue3';
 import api from '@/api';
 
-interface TimeGraphTask {
-    title: string;
+interface TimeGraphSegment {
+    title?: string;
     start_hour: number;
     end_hour: number;
 }
@@ -14,7 +14,8 @@ interface TimeGraphDay {
     date: string;
     label: string;
     shift: { start_hour: number; end_hour: number } | null;
-    tasks: TimeGraphTask[];
+    work_hours: TimeGraphSegment[];
+    tasks: TimeGraphSegment[];
 }
 
 interface TimeGraphResponse {
@@ -198,8 +199,35 @@ const formatDurationFromHours = (hours: number) => {
 const displayDays = computed(() =>
     days.value.map((day) => {
         const shiftSegments = day.shift
-            ? splitRange(day.shift.start_hour, day.shift.end_hour)
+            ? splitRange(day.shift.start_hour, day.shift.end_hour).map((segment) => {
+                  const duration = segment.end - segment.start;
+                  const startLabel = hourToLabel(segment.start);
+                  const endLabel = hourToLabel(segment.end);
+                  return {
+                      ...segment,
+                      tooltip: `Shift · ${startLabel} - ${endLabel} (Total Time: ${formatDurationFromHours(
+                          duration
+                      )})`,
+                  };
+              })
             : [];
+
+        const workSegments = (day.work_hours ?? []).flatMap((block) => {
+            const segments = splitRange(block.start_hour, block.end_hour);
+            return segments.map((segment) => {
+                const duration = segment.end - segment.start;
+                const startLabel = hourToLabel(segment.start);
+                const endLabel = hourToLabel(segment.end);
+                const label = block.title || 'Work Hours';
+                return {
+                    ...segment,
+                    title: label,
+                    tooltip: `${label} · ${startLabel} - ${endLabel} (Total Time: ${formatDurationFromHours(
+                        duration
+                    )})`,
+                };
+            });
+        });
 
         const taskSegments = day.tasks.flatMap((task) => {
             const segments = splitRange(task.start_hour, task.end_hour);
@@ -220,6 +248,7 @@ const displayDays = computed(() =>
         return {
             ...day,
             shiftSegments,
+            workSegments,
             taskSegments,
         };
     })
@@ -250,7 +279,10 @@ const formattedRange = computed(() => {
 
 const hasData = computed(() =>
     displayDays.value.some(
-        (day) => day.shiftSegments.length > 0 || day.taskSegments.length > 0
+        (day) =>
+            day.shiftSegments.length > 0 ||
+            day.workSegments.length > 0 ||
+            day.taskSegments.length > 0
     )
 );
 
@@ -406,7 +438,7 @@ const gridLines = computed(() =>
                                                 </div>
                                                 <div class="flex-1">
                                                     <div
-                                                        class="relative h-12 rounded-md border border-gray-200 bg-gray-50 min-w-full"
+                                                        class="relative h-16 rounded-md border border-gray-200 bg-gray-50 min-w-full"
                                                         :style="{ width: timelineWidth }"
                                                     >
                                                         <div
@@ -418,13 +450,23 @@ const gridLines = computed(() =>
                                                         <div
                                                             v-for="(segment, idx) in day.shiftSegments"
                                                             :key="`shift-${day.date}-${idx}`"
-                                                            class="absolute inset-y-3 rounded-md bg-sky-200/70 border border-sky-400"
+                                                            class="absolute bottom-1 h-3 rounded-md bg-sky-200/70 border border-sky-400"
                                                             :style="segmentStyle(segment)"
+                                                            :title="segment.tooltip"
                                                         ></div>
+                                                        <div
+                                                            v-for="(segment, idx) in day.workSegments"
+                                                            :key="`work-${day.date}-${idx}`"
+                                                            class="absolute top-6 h-4 rounded-md bg-amber-300 border border-amber-500 text-[10px] font-semibold text-amber-900 flex items-center justify-center px-2 shadow"
+                                                            :style="segmentStyle(segment)"
+                                                            :title="segment.tooltip"
+                                                        >
+                                                            <span class="truncate">{{ segment.title }}</span>
+                                                        </div>
                                                         <div
                                                             v-for="(segment, idx) in day.taskSegments"
                                                             :key="`task-${day.date}-${idx}`"
-                                                            class="absolute inset-1 rounded-md bg-emerald-400 border border-emerald-600 text-[11px] font-medium text-emerald-900 flex items-center justify-center px-2 shadow"
+                                                            class="absolute top-1 h-4 rounded-md bg-emerald-400 border border-emerald-600 text-[11px] font-medium text-emerald-900 flex items-center justify-center px-2 shadow"
                                                             :style="segmentStyle(segment)"
                                                             :title="segment.tooltip"
                                                         >
@@ -442,6 +484,10 @@ const gridLines = computed(() =>
                                 <div class="flex items-center gap-2">
                                     <span class="inline-block h-3 w-6 rounded-sm bg-sky-400 border border-sky-600" />
                                     <span>Shift</span>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <span class="inline-block h-3 w-6 rounded-sm bg-amber-300 border border-amber-600" />
+                                    <span>Work Hours</span>
                                 </div>
                                 <div class="flex items-center gap-2">
                                     <span class="inline-block h-3 w-6 rounded-sm bg-emerald-500 border border-emerald-700" />
