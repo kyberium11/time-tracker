@@ -137,14 +137,32 @@ const splitRange = (start: number, end: number) => {
 
 const HOURS_IN_DAY = 24;
 
+const hourToLabel = (value: number) => {
+    const wrapped = ((value % 24) + 24) % 24;
+    const hours = Math.floor(wrapped);
+    const minutes = Math.round((wrapped % 1) * 60);
+    const suffix = hours >= 12 ? 'PM' : 'AM';
+    const displayHour = ((hours + 11) % 12) + 1;
+    const minuteStr = minutes === 0 ? '00' : minutes.toString().padStart(2, '0');
+    return `${displayHour}:${minuteStr} ${suffix}`;
+};
+
 const hourTicks = computed(() => {
     const ticks: Array<{ label: string; value: number }> = [];
     for (let i = 0; i <= HOURS_IN_DAY; i += 2) {
-        const suffix = i === 0 ? '12:00 am' : `${((i + 11) % 12) + 1}:00 ${i >= 12 ? 'pm' : 'am'}`;
-        ticks.push({ label: suffix, value: i });
+        ticks.push({ label: hourToLabel(i), value: i });
     }
     return ticks;
 });
+
+const formatDurationFromHours = (hours: number) => {
+    const totalSeconds = Math.round(hours * 3600);
+    const h = Math.floor(totalSeconds / 3600);
+    const m = Math.floor((totalSeconds % 3600) / 60);
+    const s = totalSeconds % 60;
+    const pad = (n: number) => (n < 10 ? `0${n}` : `${n}`);
+    return `${pad(h)}:${pad(m)}:${pad(s)}`;
+};
 
 const displayDays = computed(() =>
     days.value.map((day) => {
@@ -154,10 +172,18 @@ const displayDays = computed(() =>
 
         const taskSegments = day.tasks.flatMap((task) => {
             const segments = splitRange(task.start_hour, task.end_hour);
-            return segments.map((segment) => ({
-                ...segment,
-                title: task.title,
-            }));
+            return segments.map((segment) => {
+                const duration = segment.end - segment.start;
+                const startLabel = hourToLabel(segment.start);
+                const endLabel = hourToLabel(segment.end);
+                return {
+                    ...segment,
+                    title: task.title,
+                    tooltip: `${startLabel} - ${endLabel} (Total Time: ${formatDurationFromHours(
+                        duration
+                    )})`,
+                };
+            });
         });
 
         return {
@@ -323,15 +349,15 @@ const gridLines = computed(() =>
                                                 <div
                                                     v-for="(segment, idx) in day.shiftSegments"
                                                     :key="`shift-${day.date}-${idx}`"
-                                                    class="absolute inset-y-1 rounded-md bg-sky-200 border border-sky-400"
+                                                    class="absolute inset-y-3 rounded-md bg-sky-200/70 border border-sky-400"
                                                     :style="segmentStyle(segment)"
                                                 ></div>
                                                 <div
                                                     v-for="(segment, idx) in day.taskSegments"
                                                     :key="`task-${day.date}-${idx}`"
-                                                    class="absolute top-2 h-6 rounded-md bg-emerald-400 border border-emerald-600 text-[11px] font-medium text-emerald-900 flex items-center justify-center px-1"
+                                                    class="absolute inset-1 rounded-md bg-emerald-400 border border-emerald-600 text-[11px] font-medium text-emerald-900 flex items-center justify-center px-2 shadow"
                                                     :style="segmentStyle(segment)"
-                                                    :title="segment.title"
+                                                    :title="segment.tooltip"
                                                 >
                                                     <span class="truncate">{{ segment.title }}</span>
                                                 </div>
