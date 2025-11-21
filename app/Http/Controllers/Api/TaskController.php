@@ -217,6 +217,11 @@ class TaskController extends Controller
         $assigneeId = $user->clickup_user_id ? (string) $user->clickup_user_id : null;
         $assigneeEmail = !$assigneeId ? (string) $user->email : null;
 
+        $teamIdForSpace = $this->resolveSpaceTeamId($spaceId, $clickUp);
+        if (!$teamIdForSpace) {
+            return response()->json(['error' => 'Unable to determine the ClickUp team for this space.'], 422);
+        }
+
         $allTasks = [];
         $seen = [];
 
@@ -231,8 +236,12 @@ class TaskController extends Controller
         };
 
         try {
-            // When syncing a specific space, fetch all tasks within that space regardless of assignee.
-            $tasksChunk = $clickUp->listSpaceTasksByAssignee((string) $spaceId, null, null, []);
+            $tasksChunk = $clickUp->listTeamTasksByAssignee(
+                (string) $teamIdForSpace,
+                $assigneeId,
+                $assigneeEmail,
+                ['space_ids[]' => (string) $spaceId]
+            );
             $collectTasks($tasksChunk);
         } catch (\Throwable $e) {
             \Log::error('Failed to fetch tasks from ClickUp space', [
@@ -257,6 +266,14 @@ class TaskController extends Controller
                 $skipped[] = [
                     'id' => '(unknown)',
                     'reason' => 'Missing task ID from ClickUp payload',
+                ];
+                continue;
+            }
+
+            if (!$this->clickUpTaskMatchesAssignee($t, $assigneeId, $assigneeEmail)) {
+                $skipped[] = [
+                    'id' => $taskId,
+                    'reason' => 'Task not assigned to the authenticated user',
                 ];
                 continue;
             }
@@ -367,7 +384,7 @@ class TaskController extends Controller
 
         $spaceIdsInput = $this->sanitizeSpaceIds($request->input('space_ids', []));
         $spaceRestricted = count($spaceIdsInput) > 0;
-        $enforceAssigneeFilter = !$spaceRestricted;
+        $spaceTeamCache = [];
 
         // Fetch tasks across all configured scopes (teams and/or spaces), merge/deduplicate.
         $allTasks = [];
@@ -387,9 +404,26 @@ class TaskController extends Controller
 
         if ($spaceRestricted) {
             foreach ($spaceIdsInput as $spaceId) {
+                if (!array_key_exists($spaceId, $spaceTeamCache)) {
+                    $spaceTeamCache[$spaceId] = $this->resolveSpaceTeamId($spaceId, $clickUp);
+                }
+
+                $teamIdForSpace = $spaceTeamCache[$spaceId];
+                if (!$teamIdForSpace) {
+                    \Log::warning('Unable to determine ClickUp team for space during bulk sync', [
+                        'spaceId' => $spaceId,
+                        'userId' => $user->id,
+                    ]);
+                    continue;
+                }
+
                 try {
-                    // For explicit space syncs, fetch every task within the space.
-                    $tasksChunk = $clickUp->listSpaceTasksByAssignee((string) $spaceId, null, null, []);
+                    $tasksChunk = $clickUp->listTeamTasksByAssignee(
+                        (string) $teamIdForSpace,
+                        $assigneeId,
+                        $assigneeEmail,
+                        ['space_ids[]' => (string) $spaceId]
+                    );
                     $collectTasks($tasksChunk);
                     $sources[] = 'Space ' . $spaceId;
                 } catch (\Throwable $e) {
@@ -447,7 +481,7 @@ class TaskController extends Controller
                 continue;
             }
 
-            if ($enforceAssigneeFilter && !$this->clickUpTaskMatchesAssignee($t, $assigneeId, $assigneeEmail)) {
+            if (!$this->clickUpTaskMatchesAssignee($t, $assigneeId, $assigneeEmail)) {
                 $skipped[] = [
                     'id' => $taskId,
                     'reason' => 'Task not assigned to the authenticated user',
@@ -556,6 +590,35 @@ class TaskController extends Controller
         }
 
         return array_keys($clean);
+    }
+
+    private function resolveSpaceTeamId(string $spaceId, ClickUpService $clickUp): ?string
+    {
+        try {
+            $space = $clickUp->getSpace($spaceId);
+        } catch (\Throwable $e) {
+            \Log::error('Failed to resolve ClickUp team for space', [
+                'spaceId' => $spaceId,
+                'error' => $e->getMessage(),
+            ]);
+            return null;
+        }
+
+        if (!$space) {
+            return null;
+        }
+
+        $teamId = data_get($space, 'team.id') ?? data_get($space, 'team_id');
+        if ($teamId) {
+            return (string) $teamId;
+        }
+
+        $teamIds = ClickUpConfig::teamIds();
+        if (count($teamIds) === 1) {
+            return (string) $teamIds[0];
+        }
+
+        return null;
     }
 
     private function clickUpSpaceIncludesUser(array $space, ?string $assigneeId, ?string $assigneeEmail, ClickUpService $clickUp = null): bool
