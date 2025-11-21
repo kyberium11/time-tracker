@@ -210,7 +210,7 @@ const displayDays = computed(() =>
                 return {
                     ...segment,
                     title: task.title,
-                    tooltip: `${startLabel} - ${endLabel} (Total Time: ${formatDurationFromHours(
+                    tooltip: `${task.title || 'Task'} · ${startLabel} - ${endLabel} (Total Time: ${formatDurationFromHours(
                         duration
                     )})`,
                 };
@@ -379,54 +379,58 @@ const gridLines = computed(() =>
                             </div>
 
                             <div v-else>
-                                <div class="mb-3 flex items-center text-xs text-gray-500">
-                                    <div class="w-36"></div>
-                                    <div class="flex-1 overflow-x-auto">
-                                        <div
-                                            class="flex justify-between text-[11px] font-medium min-w-full"
-                                            :style="{ width: timelineWidth }"
-                                        >
-                                            <span v-for="tick in hourTicks" :key="tick.value">
-                                                {{ tick.label }}
-                                            </span>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div class="space-y-4">
-                                    <div
-                                        v-for="day in displayDays"
-                                        :key="day.date"
-                                        class="flex items-center gap-4"
-                                    >
-                                        <div class="w-36 text-sm font-medium text-gray-700">
-                                            {{ day.label }}
-                                        </div>
-                                        <div class="flex-1 overflow-x-auto">
-                                            <div
-                                                class="relative h-12 rounded-md border border-gray-200 bg-gray-50 min-w-full"
-                                                :style="{ width: timelineWidth }"
-                                            >
+                                <div class="overflow-x-auto">
+                                    <div class="min-w-full">
+                                        <div class="mb-3 flex items-center text-xs text-gray-500">
+                                            <div class="w-36"></div>
+                                            <div class="flex-1">
                                                 <div
-                                                    v-for="tick in gridLines"
-                                                    :key="tick.value"
-                                                    class="absolute inset-y-0 border-l border-gray-200 last:border-r-0"
-                                                    :style="tick.style"
-                                                ></div>
-                                                <div
-                                                    v-for="(segment, idx) in day.shiftSegments"
-                                                    :key="`shift-${day.date}-${idx}`"
-                                                    class="absolute inset-y-3 rounded-md bg-sky-200/70 border border-sky-400"
-                                                    :style="segmentStyle(segment)"
-                                                ></div>
-                                                <div
-                                                    v-for="(segment, idx) in day.taskSegments"
-                                                    :key="`task-${day.date}-${idx}`"
-                                                    class="absolute inset-1 rounded-md bg-emerald-400 border border-emerald-600 text-[11px] font-medium text-emerald-900 flex items-center justify-center px-2 shadow"
-                                                    :style="segmentStyle(segment)"
-                                                    :title="segment.tooltip"
+                                                    class="flex justify-between text-[11px] font-medium min-w-full"
+                                                    :style="{ width: timelineWidth }"
                                                 >
-                                                    <span class="truncate">{{ segment.title }}</span>
+                                                    <span v-for="tick in hourTicks" :key="tick.value">
+                                                        {{ tick.label }}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div class="space-y-4">
+                                            <div
+                                                v-for="day in displayDays"
+                                                :key="day.date"
+                                                class="flex items-center gap-4"
+                                            >
+                                                <div class="w-36 text-sm font-medium text-gray-700">
+                                                    {{ day.label }}
+                                                </div>
+                                                <div class="flex-1">
+                                                    <div
+                                                        class="relative h-12 rounded-md border border-gray-200 bg-gray-50 min-w-full"
+                                                        :style="{ width: timelineWidth }"
+                                                    >
+                                                        <div
+                                                            v-for="tick in gridLines"
+                                                            :key="tick.value"
+                                                            class="absolute inset-y-0 border-l border-gray-200 last:border-r-0"
+                                                            :style="tick.style"
+                                                        ></div>
+                                                        <div
+                                                            v-for="(segment, idx) in day.shiftSegments"
+                                                            :key="`shift-${day.date}-${idx}`"
+                                                            class="absolute inset-y-3 rounded-md bg-sky-200/70 border border-sky-400"
+                                                            :style="segmentStyle(segment)"
+                                                        ></div>
+                                                        <div
+                                                            v-for="(segment, idx) in day.taskSegments"
+                                                            :key="`task-${day.date}-${idx}`"
+                                                            class="absolute inset-1 rounded-md bg-emerald-400 border border-emerald-600 text-[11px] font-medium text-emerald-900 flex items-center justify-center px-2 shadow"
+                                                            :style="segmentStyle(segment)"
+                                                            :title="segment.tooltip"
+                                                        >
+                                                            <span class="truncate">{{ segment.title }}</span>
+                                                        </div>
+                                                    </div>
                                                 </div>
                                             </div>
                                         </div>
