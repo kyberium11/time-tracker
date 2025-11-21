@@ -231,7 +231,8 @@ class TaskController extends Controller
         };
 
         try {
-            $tasksChunk = $clickUp->listSpaceTasksByAssignee((string) $spaceId, $assigneeId, $assigneeEmail, []);
+            // When syncing a specific space, fetch all tasks within that space regardless of assignee.
+            $tasksChunk = $clickUp->listSpaceTasksByAssignee((string) $spaceId, null, null, []);
             $collectTasks($tasksChunk);
         } catch (\Throwable $e) {
             \Log::error('Failed to fetch tasks from ClickUp space', [
@@ -256,14 +257,6 @@ class TaskController extends Controller
                 $skipped[] = [
                     'id' => '(unknown)',
                     'reason' => 'Missing task ID from ClickUp payload',
-                ];
-                continue;
-            }
-
-            if (!$this->clickUpTaskMatchesAssignee($t, $assigneeId, $assigneeEmail)) {
-                $skipped[] = [
-                    'id' => $taskId,
-                    'reason' => 'Task not assigned to the authenticated user',
                 ];
                 continue;
             }
@@ -374,6 +367,7 @@ class TaskController extends Controller
 
         $spaceIdsInput = $this->sanitizeSpaceIds($request->input('space_ids', []));
         $spaceRestricted = count($spaceIdsInput) > 0;
+        $enforceAssigneeFilter = !$spaceRestricted;
 
         // Fetch tasks across all configured scopes (teams and/or spaces), merge/deduplicate.
         $allTasks = [];
@@ -394,7 +388,8 @@ class TaskController extends Controller
         if ($spaceRestricted) {
             foreach ($spaceIdsInput as $spaceId) {
                 try {
-                    $tasksChunk = $clickUp->listSpaceTasksByAssignee((string) $spaceId, $assigneeId, $assigneeEmail, []);
+                    // For explicit space syncs, fetch every task within the space.
+                    $tasksChunk = $clickUp->listSpaceTasksByAssignee((string) $spaceId, null, null, []);
                     $collectTasks($tasksChunk);
                     $sources[] = 'Space ' . $spaceId;
                 } catch (\Throwable $e) {
@@ -452,7 +447,7 @@ class TaskController extends Controller
                 continue;
             }
 
-            if (!$this->clickUpTaskMatchesAssignee($t, $assigneeId, $assigneeEmail)) {
+            if ($enforceAssigneeFilter && !$this->clickUpTaskMatchesAssignee($t, $assigneeId, $assigneeEmail)) {
                 $skipped[] = [
                     'id' => $taskId,
                     'reason' => 'Task not assigned to the authenticated user',
