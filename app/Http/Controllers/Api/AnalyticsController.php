@@ -637,7 +637,6 @@ class AnalyticsController extends Controller
         
         $startTime = $shift['start'];
         $endTime = $shift['end'];
-        $dateCarbon = Carbon::parse($date);
         
         // Parse shift times (format: "HH:MM" or "H:MM")
         $startParts = explode(':', $startTime);
@@ -650,7 +649,10 @@ class AnalyticsController extends Controller
         // Determine if shift spans midnight (e.g., 4pm-1am)
         $spansMidnight = ($endHour < $startHour) || ($endHour == $startHour && $endMinute < $startMinute);
         
-        // Calculate shift window boundaries
+        // Calculate shift window boundaries in Asia/Manila timezone (where shifts are defined)
+        $timezone = 'Asia/Manila';
+        $dateCarbon = Carbon::parse($date)->setTimezone($timezone)->startOfDay();
+        
         $shiftStart = $dateCarbon->copy()->setTime($startHour, $startMinute, 0);
         if ($spansMidnight) {
             // Shift ends on next day
@@ -660,16 +662,21 @@ class AnalyticsController extends Controller
             $shiftEnd = $dateCarbon->copy()->setTime($endHour, $endMinute, 0);
         }
         
+        // Convert to UTC for comparison with database timestamps
+        $shiftStartUtc = $shiftStart->utc();
+        $shiftEndUtc = $shiftEnd->utc();
+        
         // Filter entries that fall within the shift window
-        return $entries->filter(function($entry) use ($shiftStart, $shiftEnd) {
+        return $entries->filter(function($entry) use ($shiftStartUtc, $shiftEndUtc) {
             if (!$entry->clock_in) {
                 return false;
             }
             
+            // Parse clock_in (should be in UTC from database)
             $clockIn = Carbon::parse($entry->clock_in);
             
             // Entry is within shift if clock_in is >= shiftStart and < shiftEnd
-            return $clockIn->gte($shiftStart) && $clockIn->lt($shiftEnd);
+            return $clockIn->gte($shiftStartUtc) && $clockIn->lt($shiftEndUtc);
         });
     }
 
@@ -713,11 +720,22 @@ class AnalyticsController extends Controller
         
         while ($currentDate->lte($endDateCarbon)) {
             $dateStr = $currentDate->format('Y-m-d');
-            $dateEntries = $entries->filter(function($entry) use ($dateStr) {
+            
+            // Get entries that could belong to this date's shift
+            // For shifts spanning midnight, we need to check entries from date and next day
+            // Convert to Asia/Manila timezone for date comparison
+            $timezone = 'Asia/Manila';
+            $dateEntries = $entries->filter(function($entry) use ($dateStr, $timezone) {
                 if (!$entry->clock_in) return false;
-                $entryDate = Carbon::parse($entry->clock_in)->format('Y-m-d');
+                // Parse clock_in and convert to local timezone for date comparison
+                $entryDate = Carbon::parse($entry->clock_in)->setTimezone($timezone);
+                $checkDate = Carbon::parse($dateStr)->setTimezone($timezone);
+                $nextDate = $checkDate->copy()->addDay();
+                
                 // Include entries from this date or next day (for shifts spanning midnight)
-                return $entryDate === $dateStr || $entryDate === Carbon::parse($dateStr)->addDay()->format('Y-m-d');
+                $entryDateStr = $entryDate->format('Y-m-d');
+                return $entryDateStr === $checkDate->format('Y-m-d') 
+                    || $entryDateStr === $nextDate->format('Y-m-d');
             });
             
             $filteredDateEntries = $this->filterEntriesByShift($dateEntries, $user, $dateStr);
@@ -927,11 +945,22 @@ class AnalyticsController extends Controller
         
         while ($currentDate->lte($endDateCarbon)) {
             $dateStr = $currentDate->format('Y-m-d');
-            $dateEntries = $entries->filter(function($entry) use ($dateStr) {
+            
+            // Get entries that could belong to this date's shift
+            // For shifts spanning midnight, we need to check entries from date and next day
+            // Convert to Asia/Manila timezone for date comparison
+            $timezone = 'Asia/Manila';
+            $dateEntries = $entries->filter(function($entry) use ($dateStr, $timezone) {
                 if (!$entry->clock_in) return false;
-                $entryDate = Carbon::parse($entry->clock_in)->format('Y-m-d');
+                // Parse clock_in and convert to local timezone for date comparison
+                $entryDate = Carbon::parse($entry->clock_in)->setTimezone($timezone);
+                $checkDate = Carbon::parse($dateStr)->setTimezone($timezone);
+                $nextDate = $checkDate->copy()->addDay();
+                
                 // Include entries from this date or next day (for shifts spanning midnight)
-                return $entryDate === $dateStr || $entryDate === Carbon::parse($dateStr)->addDay()->format('Y-m-d');
+                $entryDateStr = $entryDate->format('Y-m-d');
+                return $entryDateStr === $checkDate->format('Y-m-d') 
+                    || $entryDateStr === $nextDate->format('Y-m-d');
             });
             
             $filteredDateEntries = $this->filterEntriesByShift($dateEntries, $user, $dateStr);
