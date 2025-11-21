@@ -1390,26 +1390,28 @@ const loadTimeEntries = async () => {
             // Calculate net work duration (work time minus lunch)
             const netWorkDur = isClosed ? Math.max(0, workDur - lunchDur) : Math.max(0, runningSeconds - lunchDur);
             
-            // Always create a "Work Hours" entry for each clock-in/clock-out pair
-            // This represents the overall work session (Time In to Time Out)
-            if (isClosed && cout) {
-                timeEntriesRows.value.push({
-                    name: 'Work Hours',
-                    start: startStr,
-                    end: endStr,
-                    durationSeconds: netWorkDur,
-                    breakDurationSeconds: 0, // Breaks are now separate entries
-                    notes: '-'
-                });
-            } else {
-                timeEntriesRows.value.push({
-                    name: 'Work Hours',
-                    start: startStr,
-                    end: null,
-                    durationSeconds: netWorkDur,
-                    breakDurationSeconds: 0,
-                    notes: 'In progress'
-                });
+            // Create "Work Hours" entries ONLY for non-task work entries.
+            // If this entry is tied to a task, we will show it only as a Task row below.
+            if (!hasTask) {
+                if (isClosed && cout) {
+                    timeEntriesRows.value.push({
+                        name: 'Work Hours',
+                        start: startStr,
+                        end: endStr,
+                        durationSeconds: netWorkDur,
+                        breakDurationSeconds: 0, // Breaks are now separate entries
+                        notes: '-'
+                    });
+                } else {
+                    timeEntriesRows.value.push({
+                        name: 'Work Hours',
+                        start: startStr,
+                        end: null,
+                        durationSeconds: netWorkDur,
+                        breakDurationSeconds: 0,
+                        notes: 'In progress'
+                    });
+                }
             }
             
             // If entry has a task, also create a separate task entry row

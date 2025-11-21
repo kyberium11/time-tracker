@@ -347,9 +347,9 @@ const loadUserDaily = async () => {
             if (cin && (!firstIn || cin < firstIn)) firstIn = cin;
             const hasTask = !!entry.task && (entry.task.title || entry.task.name);
             
-            // Always create a "Work Hours" entry for each clock-in/clock-out pair
-            // This represents the overall work session (Time In to Time Out)
-            if (cin && cout) {
+            // Create "Work Hours" entries ONLY for non-task work entries.
+            // Task entries will be shown separately below.
+            if (cin && cout && !hasTask) {
                 const workDur = Math.max(0, Math.floor((cout.getTime() - cin.getTime()) / 1000));
                 rawWorkSeconds += workDur;
                 const ls = parseDateTime(entry.lunch_start);
@@ -365,31 +365,9 @@ const loadUserDaily = async () => {
                     breakDurationSeconds: 0,
                     notes: '-',
                 });
-            } else if (cin && !cout) {
-                // Active entry - include current time
-                const now = new Date();
-                const runningSeconds = Math.max(0, Math.floor((now.getTime() - cin.getTime()) / 1000));
-                const ls = parseDateTime(entry.lunch_start);
-                const le = parseDateTime(entry.lunch_end);
-                let lunchDur = 0;
-                if (ls && le) {
-                    lunchDur = Math.max(0, Math.floor((le.getTime() - ls.getTime()) / 1000));
-                } else if (ls && !le) {
-                    lunchDur = Math.max(0, Math.floor((now.getTime() - ls.getTime()) / 1000));
-                }
-                const netWorkDur = Math.max(0, runningSeconds - lunchDur);
-                summaryRows.value.push({
-                    name: 'Work Hours',
-                    start: entry.clock_in_formatted || entry.clock_in,
-                    end: null,
-                    durationSeconds: netWorkDur,
-                    breakDurationSeconds: 0,
-                    notes: 'In progress',
-                });
             }
             
             // If entry has a task, also create a separate task entry row
-            // Task entries are separate from Work Hours entries
             if (hasTask && cin && cout) {
                 const taskDur = Math.max(0, Math.floor((cout.getTime() - cin.getTime()) / 1000));
                 summaryRows.value.push({
