@@ -263,7 +263,7 @@ const loadUserHours = async () => {
         if (userHoursEndDate.value) params.end_date = userHoursEndDate.value;
 
         const { data } = await api.get<{ data: Array<{ user: string; date: string; worked_hours: number; task_hours: number }> }>(
-            '/admin/analytics/work-hour-gaps',
+            '/admin/analytics/utilization/gaps',
             { params }
         );
 
