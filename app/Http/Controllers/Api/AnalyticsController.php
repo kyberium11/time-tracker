@@ -1019,9 +1019,25 @@ class AnalyticsController extends Controller
      */
     public function myTimeGraph(Request $request): \Illuminate\Http\JsonResponse
     {
-        /** @var User $user */
-        $user = Auth::user();
+        /** @var User $authUser */
+        $authUser = Auth::user()->load('managedTeam');
         $timezone = 'Asia/Manila';
+
+        // Determine which user's data to show.
+        // By default, this is the authenticated user, but admins / managers / developers
+        // can filter by a specific user_id (within their scope).
+        $targetUser = $authUser;
+        $scopedUserIds = $this->resolveScopedUserIds($authUser);
+
+        if ($request->filled('user_id')) {
+            $requestedId = (int) $request->input('user_id');
+
+            if ($scopedUserIds !== null && !in_array($requestedId, $scopedUserIds, true)) {
+                return response()->json(['error' => 'Forbidden'], 403);
+            }
+
+            $targetUser = User::findOrFail($requestedId);
+        }
 
         $maxSpanDays = 31;
         $daysParam = (int) $request->input('days', 5);
@@ -1056,7 +1072,7 @@ class AnalyticsController extends Controller
 
         // Fetch all work entries with tasks in the date range
         $entries = TimeEntry::with('task')
-            ->where('user_id', $user->id)
+            ->where('user_id', $targetUser->id)
             ->whereBetween('date', [$startDate, $endDate])
             ->where('entry_type', 'work')
             ->whereNotNull('clock_in')
@@ -1074,7 +1090,7 @@ class AnalyticsController extends Controller
             $dateStr = $cursor->toDateString();
 
             // Determine shift for this date (if any)
-            $shift = $user->getShiftForDate($cursor);
+            $shift = $targetUser->getShiftForDate($cursor);
             $shiftData = null;
             if ($shift && isset($shift['start'], $shift['end'])) {
                 $startParts = explode(':', $shift['start']);

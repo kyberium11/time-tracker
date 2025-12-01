@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
-import { Head } from '@inertiajs/vue3';
+import { Head, usePage } from '@inertiajs/vue3';
 import api from '@/api';
 
 interface TimeGraphSegment {
@@ -25,6 +25,23 @@ interface TimeGraphResponse {
     days: TimeGraphDay[];
 }
 
+interface UserOption {
+    id: number;
+    name: string;
+    email: string;
+}
+
+const page = usePage();
+const currentUserRole = computed(() => {
+    // Inertia's default Laravel setup exposes the authenticated user on props.auth.user
+    // We avoid strict typing here to keep this component flexible.
+    const auth: any = (page.props as any).auth;
+    return auth?.user?.role ?? null;
+});
+const canFilterByUser = computed(() =>
+    ['admin', 'developer', 'manager'].includes(currentUserRole.value ?? '')
+);
+
 const loading = ref(true);
 const error = ref<string | null>(null);
 const days = ref<TimeGraphDay[]>([]);
@@ -32,9 +49,13 @@ const timezone = ref<string>('Asia/Manila');
 const rangeSummary = ref<{ start: string; end: string }>({ start: '', end: '' });
 
 const filters = ref({
+    userId: null as number | null,
     startDate: '',
     endDate: '',
 });
+
+const users = ref<UserOption[]>([]);
+const hasUserFilter = ref(false);
 
 const formatInputDate = (date: Date) => date.toISOString().slice(0, 10);
 
@@ -46,11 +67,32 @@ const initializeFilters = () => {
     filters.value.endDate = formatInputDate(end);
 };
 
+const loadUsers = async () => {
+    if (!canFilterByUser.value) {
+        return;
+    }
+
+    try {
+        const response = await api.get('/admin/users', { params: { per_page: 1000 } });
+        const payload = (response.data && response.data.data) || response.data;
+        if (Array.isArray(payload)) {
+            users.value = payload;
+            hasUserFilter.value = users.value.length > 0;
+        } else {
+            hasUserFilter.value = false;
+        }
+    } catch (e) {
+        console.error('Failed to load users for Time Graph filter', e);
+        hasUserFilter.value = false;
+    }
+};
+
 const fetchData = async () => {
     loading.value = true;
     error.value = null;
     try {
         const params: Record<string, string> = {};
+        if (filters.value.userId) params.user_id = String(filters.value.userId);
         if (filters.value.startDate) params.start_date = filters.value.startDate;
         if (filters.value.endDate) params.end_date = filters.value.endDate;
 
@@ -96,6 +138,7 @@ const resetFilters = () => {
 
 onMounted(() => {
     initializeFilters();
+    loadUsers();
     fetchData();
 });
 
@@ -325,6 +368,24 @@ const gridLines = computed(() =>
                             </div>
                             <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
                                 <div class="flex flex-wrap items-end gap-4">
+                                    <div v-if="hasUserFilter" class="min-w-[200px]">
+                                        <label class="mb-1 block text-sm font-medium text-gray-700">
+                                            User
+                                        </label>
+                                        <select
+                                            v-model="filters.userId"
+                                            class="block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500"
+                                        >
+                                            <option :value="null">All Users</option>
+                                            <option
+                                                v-for="user in users"
+                                                :key="user.id"
+                                                :value="user.id"
+                                            >
+                                                {{ user.name }}
+                                            </option>
+                                        </select>
+                                    </div>
                                     <div>
                                     <label class="block text-sm font-medium text-gray-700 mb-1">
                                         Start Date
