@@ -188,6 +188,36 @@ class AnalyticsController extends Controller
             return response()->json(['data' => []]);
         }
 
+        $teamId = $request->input('team_id');
+        $selectedUserId = $request->input('user_id');
+
+        if ($teamId) {
+            $teamUserQuery = User::where('team_id', $teamId);
+            if ($scopedUserIds !== null) {
+                $teamUserQuery->whereIn('id', $scopedUserIds);
+            }
+            $teamUserIds = $teamUserQuery->pluck('id')->all();
+
+            $scopedUserIds = $teamUserIds;
+        }
+
+        if ($selectedUserId) {
+            $selectedUserId = (int) $selectedUserId;
+            if ($scopedUserIds !== null) {
+                if (!in_array($selectedUserId, $scopedUserIds, true)) {
+                    // Requested user is outside the allowed scope; return empty.
+                    return response()->json(['data' => []]);
+                }
+                $scopedUserIds = [$selectedUserId];
+            } else {
+                $scopedUserIds = [$selectedUserId];
+            }
+        }
+
+        if ($scopedUserIds !== null && count($scopedUserIds) === 0) {
+            return response()->json(['data' => []]);
+        }
+
         $startDateInput = $request->input('start_date', now()->copy()->subDays(30)->toDateString());
         $endDateInput = $request->input('end_date', now()->toDateString());
         $startDate = \Carbon\Carbon::parse($startDateInput)->startOfDay();
@@ -200,10 +230,6 @@ class AnalyticsController extends Controller
 
         if ($scopedUserIds !== null) {
             $builder->whereIn('user_id', $scopedUserIds);
-        }
-
-        if ($request->filled('user_id')) {
-            $builder->where('user_id', $request->integer('user_id'));
         }
 
         $rows = $builder
@@ -241,6 +267,36 @@ class AnalyticsController extends Controller
             return response()->json(['data' => []]);
         }
 
+        $teamId = $request->input('team_id');
+        $selectedUserId = $request->input('user_id');
+
+        if ($teamId) {
+            $teamUserQuery = User::where('team_id', $teamId);
+            if ($scopedUserIds !== null) {
+                $teamUserQuery->whereIn('id', $scopedUserIds);
+            }
+            $teamUserIds = $teamUserQuery->pluck('id')->all();
+
+            $scopedUserIds = $teamUserIds;
+        }
+
+        if ($selectedUserId) {
+            $selectedUserId = (int) $selectedUserId;
+            if ($scopedUserIds !== null) {
+                if (!in_array($selectedUserId, $scopedUserIds, true)) {
+                    // Requested user is outside the allowed scope; return empty.
+                    return response()->json(['data' => []]);
+                }
+                $scopedUserIds = [$selectedUserId];
+            } else {
+                $scopedUserIds = [$selectedUserId];
+            }
+        }
+
+        if ($scopedUserIds !== null && count($scopedUserIds) === 0) {
+            return response()->json(['data' => []]);
+        }
+
         $startDateInput = $request->input('start_date', now()->copy()->subDays(30)->toDateString());
         $endDateInput = $request->input('end_date', now()->toDateString());
         $startDate = \Carbon\Carbon::parse($startDateInput)->startOfDay();
@@ -253,10 +309,6 @@ class AnalyticsController extends Controller
 
         if ($scopedUserIds !== null) {
             $builder->whereIn('user_id', $scopedUserIds);
-        }
-
-        if ($request->filled('user_id')) {
-            $builder->where('user_id', $request->integer('user_id'));
         }
 
         $rows = $builder

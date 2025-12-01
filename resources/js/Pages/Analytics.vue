@@ -235,14 +235,20 @@ interface UserHoursCell {
 interface UserHoursRow {
     date: string;
     cells: Record<string, UserHoursCell>;
-    totalTaskHours: number;
-    totalWorkHours: number;
+}
+
+interface SimpleTeam {
+    id: number;
+    name: string;
 }
 
 const userHoursStartDate = ref<string>('');
 const userHoursEndDate = ref<string>('');
 const userHoursUsers = ref<string[]>([]);
 const userHoursRows = ref<UserHoursRow[]>([]);
+const userHoursUserTotals = ref<Record<string, UserHoursCell>>({});
+const userHoursTeams = ref<SimpleTeam[]>([]);
+const userHoursSelectedTeamId = ref<number | null>(null);
 const userHoursLoading = ref(false);
 const userHoursError = ref<string | null>(null);
 
@@ -254,13 +260,38 @@ const initUserHoursDates = () => {
     userHoursEndDate.value = end.toISOString().split('T')[0];
 };
 
+const loadUserHoursTeams = async () => {
+    try {
+        const { data } = await api.get<SimpleTeam[]>('/admin/teams', { params: { per_page: 1000 } });
+        if (Array.isArray(data)) {
+            userHoursTeams.value = data.map((t: any) => ({
+                id: t.id,
+                name: t.name,
+            }));
+        } else {
+            userHoursTeams.value = [];
+        }
+    } catch (e) {
+        // This endpoint is admin-only; managers may get 403 which we can safely ignore.
+        console.error('Error loading teams for user hours matrix', e);
+        userHoursTeams.value = [];
+    }
+};
+
+const formatUserHoursDate = (value: string) => {
+    if (!value) return '';
+    // API returns full ISO string (e.g. 2025-11-17T00:00:00.000000Z); we just want the calendar date.
+    return value.split('T')[0] || value;
+};
+
 const loadUserHours = async () => {
     userHoursLoading.value = true;
     userHoursError.value = null;
     try {
-        const params: Record<string, string> = {};
+        const params: Record<string, string | number> = {};
         if (userHoursStartDate.value) params.start_date = userHoursStartDate.value;
         if (userHoursEndDate.value) params.end_date = userHoursEndDate.value;
+        if (userHoursSelectedTeamId.value) params.team_id = userHoursSelectedTeamId.value;
 
         const { data } = await api.get<{ data: Array<{ user: string; date: string; worked_hours: number; task_hours: number }> }>(
             '/admin/analytics/utilization/gaps',
@@ -271,6 +302,7 @@ const loadUserHours = async () => {
         if (!rows.length) {
             userHoursUsers.value = [];
             userHoursRows.value = [];
+            userHoursUserTotals.value = {};
             return;
         }
 
@@ -286,13 +318,12 @@ const loadUserHours = async () => {
         const dates = Array.from(dateSet).sort((a, b) => a.localeCompare(b));
 
         const rowMap: Record<string, UserHoursRow> = {};
+        const totalsMap: Record<string, UserHoursCell> = {};
 
         dates.forEach((d) => {
             rowMap[d] = {
                 date: d,
                 cells: {},
-                totalTaskHours: 0,
-                totalWorkHours: 0,
             };
         });
 
@@ -312,12 +343,20 @@ const loadUserHours = async () => {
 
             cell.workHours += worked;
             cell.taskHours += task;
-            row.totalWorkHours += worked;
-            row.totalTaskHours += task;
+
+            if (!totalsMap[userName]) {
+                totalsMap[userName] = {
+                    taskHours: 0,
+                    workHours: 0,
+                };
+            }
+            totalsMap[userName].workHours += worked;
+            totalsMap[userName].taskHours += task;
         });
 
         userHoursUsers.value = users;
         userHoursRows.value = dates.map((d) => rowMap[d]);
+        userHoursUserTotals.value = totalsMap;
     } catch (e: any) {
         console.error('Error loading user hours matrix', e);
         userHoursError.value = e?.response?.data?.error || 'Unable to load user hours.';
@@ -600,6 +639,7 @@ onMounted(() => {
     loadActivityLogs();
     fetchSummary();
     initUserHoursDates();
+    loadUserHoursTeams();
 });
 
 watch(activeTab, (newTab) => {
@@ -1024,10 +1064,22 @@ watch(selectedActionFilter, () => {
                         <div>
                             <h3 class="text-lg font-semibold text-gray-900">User Hours Matrix</h3>
                             <p class="text-sm text-gray-500">
-                                Each cell shows Task Hours / Work Hours for that user and date. Totals per date are on the right.
+                                Each cell shows Task Hours / Work Hours for that user and date. Totals per user are shown in the bottom row.
                             </p>
                         </div>
                         <div class="ml-auto flex flex-wrap items-end gap-3">
+                            <div v-if="userHoursTeams.length">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Team</label>
+                                <select
+                                    v-model.number="userHoursSelectedTeamId"
+                                    class="rounded-md border-gray-300 shadow-sm text-sm min-w-[10rem]"
+                                >
+                                    <option :value="null">All Teams</option>
+                                    <option v-for="team in userHoursTeams" :key="team.id" :value="team.id">
+                                        {{ team.name }}
+                                    </option>
+                                </select>
+                            </div>
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
                                 <input
@@ -1085,18 +1137,12 @@ watch(selectedActionFilter, () => {
                                         >
                                             {{ user }}
                                         </th>
-                                        <th class="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">
-                                            Total Task
-                                        </th>
-                                        <th class="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">
-                                            Total Work
-                                        </th>
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-gray-200 bg-white">
                                     <tr v-for="row in userHoursRows" :key="row.date">
                                         <td class="px-4 py-3 text-sm text-gray-900 whitespace-nowrap">
-                                            {{ row.date }}
+                                            {{ formatUserHoursDate(row.date) }}
                                         </td>
                                         <td
                                             v-for="user in userHoursUsers"
@@ -1113,14 +1159,35 @@ watch(selectedActionFilter, () => {
                                             </div>
                                             <div v-else class="text-gray-300">—</div>
                                         </td>
-                                        <td class="px-4 py-3 text-sm text-right text-gray-900 whitespace-nowrap">
-                                            {{ row.totalTaskHours.toFixed(2) }} h
-                                        </td>
-                                        <td class="px-4 py-3 text-sm text-right text-gray-900 whitespace-nowrap">
-                                            {{ row.totalWorkHours.toFixed(2) }} h
-                                        </td>
                                     </tr>
                                 </tbody>
+                                <tfoot class="bg-gray-50 border-t border-gray-200">
+                                    <tr>
+                                        <th class="px-4 py-3 text-sm font-semibold text-gray-900 text-right">
+                                            Totals
+                                        </th>
+                                        <td
+                                            v-for="user in userHoursUsers"
+                                            :key="user + '-total'"
+                                            class="px-4 py-3 text-xs text-gray-900 text-center"
+                                        >
+                                            <div class="font-semibold text-indigo-700">
+                                                Task:
+                                                {{
+                                                    (userHoursUserTotals[user]?.taskHours ?? 0).toFixed(2)
+                                                }}
+                                                h
+                                            </div>
+                                            <div class="text-gray-700">
+                                                Work:
+                                                {{
+                                                    (userHoursUserTotals[user]?.workHours ?? 0).toFixed(2)
+                                                }}
+                                                h
+                                            </div>
+                                        </td>
+                                    </tr>
+                                </tfoot>
                             </table>
                         </div>
                     </div>
