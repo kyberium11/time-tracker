@@ -1767,7 +1767,7 @@ const formatTaskContent = (content: string | null | undefined) => {
                 <!-- Dashboard Tab Content -->
                 <div v-if="activeTab === 'dashboard' || userRole === 'admin' || userRole === 'developer'">
                 <!-- Header Cards: Work Day Timer, Daily Logs (non-admin roles) -->
-                <div class="mb-6 grid gap-4 md:grid-cols-3">
+                <div class="mb-6 grid gap-4 md:grid-cols-3" v-if="userRole !== 'admin'">
                     <!-- Work Day Timer -->
                     <div class="overflow-hidden bg-white shadow sm:rounded-lg">
                         <div class="px-4 py-5 sm:p-6">
