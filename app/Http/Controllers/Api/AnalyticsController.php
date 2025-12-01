@@ -246,11 +246,18 @@ class AnalyticsController extends Controller
             ->get();
 
         $data = $rows->map(function (TimeEntry $entry) {
+            $firstClockIn = $entry->first_clock_in
+                ? Carbon::parse($entry->first_clock_in)->setTimezone('Asia/Manila')->toIso8601String()
+                : null;
+            $lastClockOut = $entry->last_clock_out
+                ? Carbon::parse($entry->last_clock_out)->setTimezone('Asia/Manila')->toIso8601String()
+                : null;
+
             return [
                 'user' => $entry->user?->name ?? 'Unknown',
                 'date' => $entry->date,
-                'first_clock_in' => $entry->first_clock_in ? (string) $entry->first_clock_in : null,
-                'last_clock_out' => $entry->last_clock_out ? (string) $entry->last_clock_out : null,
+                'first_clock_in' => $firstClockIn,
+                'last_clock_out' => $lastClockOut,
                 'worked_hours' => round((float) ($entry->worked_hours ?? 0), 2),
                 'task_hours' => round((float) ($entry->task_hours ?? 0), 2),
             ];
