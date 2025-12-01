@@ -1766,7 +1766,7 @@ const formatTaskContent = (content: string | null | undefined) => {
 
                 <!-- Dashboard Tab Content -->
                 <div v-if="activeTab === 'dashboard' || userRole === 'admin' || userRole === 'developer'">
-                <!-- Header Cards: Work Day Timer, Daily Logs -->
+                <!-- Header Cards: Work Day Timer, Daily Logs (non-admin roles) -->
                 <div class="mb-6 grid gap-4 md:grid-cols-3" v-if="userRole !== 'admin'">
                     <!-- Work Day Timer -->
                     <div class="overflow-hidden bg-white shadow sm:rounded-lg">
@@ -1827,6 +1827,43 @@ const formatTaskContent = (content: string | null | undefined) => {
                         </div>
                     </div>
                     
+                </div>
+
+                <!-- Admin: Work Day Timer (shown above real-time activity log) -->
+                <div v-if="userRole === 'admin'" class="mb-6 overflow-hidden bg-white shadow sm:rounded-lg">
+                    <div class="px-4 py-5 sm:p-6">
+                        <h3 class="text-xs font-semibold uppercase tracking-wide text-gray-500">Work Day Timer</h3>
+                        <p class="mt-2 text-3xl font-bold text-gray-900">{{ runningDisplay }}</p>
+                        <p class="text-xs text-gray-500">{{ isClockedIn ? 'Working' : 'Idle' }}</p>
+                        <div v-if="isOnBreak" class="mt-2">
+                            <p class="text-sm text-gray-600">
+                                Break Timer:
+                                <span class="font-semibold">{{ breakDisplay }}</span>
+                            </p>
+                        </div>
+                        <div class="mt-4 flex flex-wrap gap-2">
+                            <button
+                                @click="toggleWork"
+                                :disabled="loading"
+                                :class="[
+                                    'rounded-md px-3 py-1.5 text-xs font-semibold text-white',
+                                    isClockedIn ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'
+                                ]"
+                            >
+                                {{ isClockedIn ? 'Time Out' : 'Time In' }}
+                            </button>
+                            <button
+                                @click="toggleBreak"
+                                :disabled="loading"
+                                :class="[
+                                    'rounded-md px-3 py-1.5 text-xs font-semibold text-white',
+                                    isOnBreak ? 'bg-orange-600 hover:bg-orange-700' : 'bg-yellow-600 hover:bg-yellow-700'
+                                ]"
+                            >
+                                {{ isOnBreak ? 'Break Out' : 'Break In' }}
+                            </button>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Admin: Real-Time Activity Log -->
