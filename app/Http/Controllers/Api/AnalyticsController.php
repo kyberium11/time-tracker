@@ -236,6 +236,8 @@ class AnalyticsController extends Controller
             ->selectRaw("
                 user_id,
                 date,
+                MIN(clock_in) AS first_clock_in,
+                MAX(clock_out) AS last_clock_out,
                 SUM(CASE WHEN task_id IS NULL THEN COALESCE(total_hours, 0) ELSE 0 END) AS worked_hours,
                 SUM(CASE WHEN task_id IS NOT NULL THEN COALESCE(total_hours, 0) ELSE 0 END) AS task_hours
             ")
@@ -247,6 +249,8 @@ class AnalyticsController extends Controller
             return [
                 'user' => $entry->user?->name ?? 'Unknown',
                 'date' => $entry->date,
+                'first_clock_in' => $entry->first_clock_in ? (string) $entry->first_clock_in : null,
+                'last_clock_out' => $entry->last_clock_out ? (string) $entry->last_clock_out : null,
                 'worked_hours' => round((float) ($entry->worked_hours ?? 0), 2),
                 'task_hours' => round((float) ($entry->task_hours ?? 0), 2),
             ];

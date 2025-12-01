@@ -230,6 +230,8 @@ const lastPollTimestamp = ref<number>(Date.now());
 interface UserHoursCell {
     taskHours: number;
     workHours: number;
+    timeIn?: string | null;
+    timeOut?: string | null;
 }
 
 interface UserHoursRow {
@@ -284,6 +286,21 @@ const formatUserHoursDate = (value: string) => {
     return value.split('T')[0] || value;
 };
 
+const buildUserHoursTooltip = (row: UserHoursRow, user: string): string => {
+    const cell = row.cells[user];
+    if (!cell) return '';
+
+    const parts: string[] = [];
+    if (cell.timeIn) {
+        parts.push(`Time in: ${formatTime(cell.timeIn)}`);
+    }
+    if (cell.timeOut) {
+        parts.push(`Time out: ${formatTime(cell.timeOut)}`);
+    }
+
+    return parts.join('\n');
+};
+
 const loadUserHours = async () => {
     userHoursLoading.value = true;
     userHoursError.value = null;
@@ -293,7 +310,16 @@ const loadUserHours = async () => {
         if (userHoursEndDate.value) params.end_date = userHoursEndDate.value;
         if (userHoursSelectedTeamId.value) params.team_id = userHoursSelectedTeamId.value;
 
-        const { data } = await api.get<{ data: Array<{ user: string; date: string; worked_hours: number; task_hours: number }> }>(
+        const { data } = await api.get<{
+            data: Array<{
+                user: string;
+                date: string;
+                worked_hours: number;
+                task_hours: number;
+                first_clock_in?: string | null;
+                last_clock_out?: string | null;
+            }>;
+        }>(
             '/admin/analytics/utilization/gaps',
             { params }
         );
@@ -335,6 +361,8 @@ const loadUserHours = async () => {
                 row.cells[userName] = {
                     taskHours: 0,
                     workHours: 0,
+                    timeIn: null,
+                    timeOut: null,
                 };
             }
             const cell = row.cells[userName];
@@ -343,6 +371,17 @@ const loadUserHours = async () => {
 
             cell.workHours += worked;
             cell.taskHours += task;
+
+            if (r.first_clock_in) {
+                if (!cell.timeIn || new Date(r.first_clock_in) < new Date(cell.timeIn)) {
+                    cell.timeIn = r.first_clock_in;
+                }
+            }
+            if (r.last_clock_out) {
+                if (!cell.timeOut || new Date(r.last_clock_out) > new Date(cell.timeOut)) {
+                    cell.timeOut = r.last_clock_out;
+                }
+            }
 
             if (!totalsMap[userName]) {
                 totalsMap[userName] = {
@@ -1147,17 +1186,18 @@ watch(selectedActionFilter, () => {
                                         <td
                                             v-for="user in userHoursUsers"
                                             :key="user + row.date"
-                                            class="px-4 py-3 text-xs text-gray-700 text-center align-top"
+                                            class="px-4 py-3 text-center align-top"
+                                            :title="buildUserHoursTooltip(row, user)"
                                         >
-                                            <div v-if="row.cells[user]">
-                                                <div class="font-medium text-indigo-700">
-                                                    Task: {{ row.cells[user].taskHours.toFixed(2) }} h
-                                                </div>
-                                                <div class="text-gray-600">
+                                            <div v-if="row.cells[user]" class="space-y-0.5">
+                                                <div class="text-sm font-semibold text-gray-900">
                                                     Work: {{ row.cells[user].workHours.toFixed(2) }} h
                                                 </div>
+                                                <div class="text-xs text-gray-500">
+                                                    Task: {{ row.cells[user].taskHours.toFixed(2) }} h
+                                                </div>
                                             </div>
-                                            <div v-else class="text-gray-300">—</div>
+                                            <div v-else class="text-xs text-gray-300">—</div>
                                         </td>
                                     </tr>
                                 </tbody>
