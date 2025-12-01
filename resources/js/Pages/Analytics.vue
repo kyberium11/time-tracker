@@ -193,7 +193,7 @@ interface ActivityLog {
     user?: { id: number; name: string; email: string };
 }
 
-const activeTab = ref<'overview' | 'summary' | 'activity'>('overview');
+const activeTab = ref<'overview' | 'summary' | 'activity' | 'user-hours'>('overview');
 const selectedUser = ref<number | null>(null);
 const summaryDate = ref('');
 const allUsers = ref<Array<{ id: number; name: string }>>([]);
@@ -222,6 +222,111 @@ const activityLogs = ref<ActivityLog[]>([]);
 const activityLogsLoading = ref(false);
 const selectedActionFilter = ref('');
 const lastPollTimestamp = ref<number>(Date.now());
+
+// ------------------------------------------------------------
+// User Hours Matrix (per user per day)
+// ------------------------------------------------------------
+
+interface UserHoursCell {
+    taskHours: number;
+    workHours: number;
+}
+
+interface UserHoursRow {
+    date: string;
+    cells: Record<string, UserHoursCell>;
+    totalTaskHours: number;
+    totalWorkHours: number;
+}
+
+const userHoursStartDate = ref<string>('');
+const userHoursEndDate = ref<string>('');
+const userHoursUsers = ref<string[]>([]);
+const userHoursRows = ref<UserHoursRow[]>([]);
+const userHoursLoading = ref(false);
+const userHoursError = ref<string | null>(null);
+
+const initUserHoursDates = () => {
+    const end = new Date();
+    const start = new Date();
+    start.setDate(end.getDate() - 13); // default last 14 days
+    userHoursStartDate.value = start.toISOString().split('T')[0];
+    userHoursEndDate.value = end.toISOString().split('T')[0];
+};
+
+const loadUserHours = async () => {
+    userHoursLoading.value = true;
+    userHoursError.value = null;
+    try {
+        const params: Record<string, string> = {};
+        if (userHoursStartDate.value) params.start_date = userHoursStartDate.value;
+        if (userHoursEndDate.value) params.end_date = userHoursEndDate.value;
+
+        const { data } = await api.get<{ data: Array<{ user: string; date: string; worked_hours: number; task_hours: number }> }>(
+            '/admin/analytics/work-hour-gaps',
+            { params }
+        );
+
+        const rows = data?.data || [];
+        if (!rows.length) {
+            userHoursUsers.value = [];
+            userHoursRows.value = [];
+            return;
+        }
+
+        // Collect unique users and dates
+        const userSet = new Set<string>();
+        const dateSet = new Set<string>();
+        rows.forEach((r) => {
+            if (r.user) userSet.add(r.user);
+            if (r.date) dateSet.add(r.date);
+        });
+
+        const users = Array.from(userSet).sort((a, b) => a.localeCompare(b));
+        const dates = Array.from(dateSet).sort((a, b) => a.localeCompare(b));
+
+        const rowMap: Record<string, UserHoursRow> = {};
+
+        dates.forEach((d) => {
+            rowMap[d] = {
+                date: d,
+                cells: {},
+                totalTaskHours: 0,
+                totalWorkHours: 0,
+            };
+        });
+
+        rows.forEach((r) => {
+            const row = rowMap[r.date];
+            if (!row) return;
+            const userName = r.user || 'Unknown';
+            if (!row.cells[userName]) {
+                row.cells[userName] = {
+                    taskHours: 0,
+                    workHours: 0,
+                };
+            }
+            const cell = row.cells[userName];
+            const worked = Number.isFinite(r.worked_hours) ? r.worked_hours : 0;
+            const task = Number.isFinite(r.task_hours) ? r.task_hours : 0;
+
+            cell.workHours += worked;
+            cell.taskHours += task;
+            row.totalWorkHours += worked;
+            row.totalTaskHours += task;
+        });
+
+        userHoursUsers.value = users;
+        userHoursRows.value = dates.map((d) => rowMap[d]);
+    } catch (e: any) {
+        console.error('Error loading user hours matrix', e);
+        userHoursError.value = e?.response?.data?.error || 'Unable to load user hours.';
+        userHoursUsers.value = [];
+        userHoursRows.value = [];
+    } finally {
+        userHoursLoading.value = false;
+    }
+};
 
 const formatSecondsToHHMMSS = (sec: number | null | undefined) => {
     const total = typeof sec === 'number' && isFinite(sec) ? Math.max(0, Math.floor(sec)) : 0;
@@ -494,6 +599,7 @@ onMounted(() => {
     loadUsers();
     loadActivityLogs();
     fetchSummary();
+    initUserHoursDates();
 });
 
 watch(activeTab, (newTab) => {
@@ -508,6 +614,11 @@ watch(activeTab, (newTab) => {
         }
     } else if (newTab === 'activity') {
         loadActivityLogs(true);
+    } else if (newTab === 'user-hours') {
+        if (!userHoursStartDate.value || !userHoursEndDate.value) {
+            initUserHoursDates();
+        }
+        loadUserHours();
     }
 });
 
@@ -565,6 +676,17 @@ watch(selectedActionFilter, () => {
                             ]"
                         >
                             User Summary
+                        </button>
+                        <button
+                            @click="activeTab = 'user-hours'"
+                            :class="[
+                                'whitespace-nowrap border-b-2 py-4 px-1 text-sm font-medium',
+                                activeTab === 'user-hours'
+                                    ? 'border-indigo-500 text-indigo-600'
+                                    : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+                            ]"
+                        >
+                            User Hours
                         </button>
                         <button
                             @click="activeTab = 'activity'"
@@ -803,7 +925,7 @@ watch(selectedActionFilter, () => {
                     </div>
                 </div>
 
-                <div v-else class="space-y-6">
+                <div v-else-if="activeTab === 'activity'" class="space-y-6">
                     <div class="bg-white shadow rounded-lg p-4">
                         <div class="flex justify-between items-center mb-4">
                             <h3 class="text-lg font-medium text-gray-900">Real-Time Activity Log</h3>
@@ -892,6 +1014,114 @@ watch(selectedActionFilter, () => {
                         <div v-if="activityLogsLoading" class="text-center py-8">
                             <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
                             <p class="mt-2 text-sm text-gray-500">Loading...</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- User Hours Tab -->
+                <div v-else-if="activeTab === 'user-hours'" class="space-y-6">
+                    <div class="bg-white shadow rounded-lg p-4 flex flex-wrap items-end gap-4">
+                        <div>
+                            <h3 class="text-lg font-semibold text-gray-900">User Hours Matrix</h3>
+                            <p class="text-sm text-gray-500">
+                                Each cell shows Task Hours / Work Hours for that user and date. Totals per date are on the right.
+                            </p>
+                        </div>
+                        <div class="ml-auto flex flex-wrap items-end gap-3">
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
+                                <input
+                                    type="date"
+                                    v-model="userHoursStartDate"
+                                    class="rounded-md border-gray-300 shadow-sm text-sm"
+                                />
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">End Date</label>
+                                <input
+                                    type="date"
+                                    v-model="userHoursEndDate"
+                                    class="rounded-md border-gray-300 shadow-sm text-sm"
+                                />
+                            </div>
+                            <button
+                                type="button"
+                                @click="loadUserHours"
+                                :disabled="userHoursLoading"
+                                class="inline-flex items-center gap-2 rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-500 disabled:opacity-60 disabled:cursor-not-allowed"
+                            >
+                                <span
+                                    v-if="userHoursLoading"
+                                    class="h-3 w-3 animate-spin rounded-full border-2 border-white border-t-transparent"
+                                ></span>
+                                <span>{{ userHoursLoading ? 'Loading…' : 'Apply' }}</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div v-if="userHoursError" class="bg-red-50 border border-red-200 text-red-700 rounded-lg p-4">
+                        <p class="text-sm">{{ userHoursError }}</p>
+                    </div>
+
+                    <div v-else class="bg-white shadow rounded-lg">
+                        <div v-if="userHoursLoading" class="p-8 text-center text-sm text-gray-500">
+                            <div class="mx-auto mb-3 h-8 w-8 animate-spin rounded-full border-b-2 border-indigo-600"></div>
+                            Loading user hours…
+                        </div>
+                        <div v-else-if="!userHoursRows.length" class="p-8 text-center text-sm text-gray-500">
+                            No data for selected range.
+                        </div>
+                        <div v-else class="overflow-x-auto">
+                            <table class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">
+                                            Date
+                                        </th>
+                                        <th
+                                            v-for="user in userHoursUsers"
+                                            :key="user"
+                                            class="px-4 py-3 text-center text-xs font-medium uppercase tracking-wider text-gray-500"
+                                        >
+                                            {{ user }}
+                                        </th>
+                                        <th class="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">
+                                            Total Task
+                                        </th>
+                                        <th class="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">
+                                            Total Work
+                                        </th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-gray-200 bg-white">
+                                    <tr v-for="row in userHoursRows" :key="row.date">
+                                        <td class="px-4 py-3 text-sm text-gray-900 whitespace-nowrap">
+                                            {{ row.date }}
+                                        </td>
+                                        <td
+                                            v-for="user in userHoursUsers"
+                                            :key="user + row.date"
+                                            class="px-4 py-3 text-xs text-gray-700 text-center align-top"
+                                        >
+                                            <div v-if="row.cells[user]">
+                                                <div class="font-medium text-indigo-700">
+                                                    Task: {{ row.cells[user].taskHours.toFixed(2) }} h
+                                                </div>
+                                                <div class="text-gray-600">
+                                                    Work: {{ row.cells[user].workHours.toFixed(2) }} h
+                                                </div>
+                                            </div>
+                                            <div v-else class="text-gray-300">—</div>
+                                        </td>
+                                        <td class="px-4 py-3 text-sm text-right text-gray-900 whitespace-nowrap">
+                                            {{ row.totalTaskHours.toFixed(2) }} h
+                                        </td>
+                                        <td class="px-4 py-3 text-sm text-right text-gray-900 whitespace-nowrap">
+                                            {{ row.totalWorkHours.toFixed(2) }} h
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
                         </div>
                     </div>
                 </div>
