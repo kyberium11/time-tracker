@@ -1861,8 +1861,8 @@ const formatTaskContent = (content: string | null | undefined) => {
                     </div>
                 </div>
 
-                <!-- Manager/Employee/Developer: Task List with Play/Pause/Stop -->
-                <div v-if="userRole !== 'admin'" class="mb-6 overflow-hidden bg-white shadow sm:rounded-lg">
+                <!-- Task List with Play/Pause/Stop (all roles) -->
+                <div class="mb-6 overflow-hidden bg-white shadow sm:rounded-lg">
                     <div class="px-4 py-5 sm:p-6">
                         <div class="flex items-center justify-between mb-3">
                             <h3 class="text-lg font-medium leading-6 text-gray-900">My Tasks</h3>
