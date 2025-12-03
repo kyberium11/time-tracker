@@ -1378,7 +1378,7 @@ class TimeEntryController extends Controller
                     continue;
                 }
 
-                $isClosed = Boolean($cout);
+                $isClosed = (bool) $cout;
                 $durationSeconds = 0;
                 if ($isClosed && $cout) {
                     $durationSeconds = max(0, $cout->diffInSeconds($cin));
