@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed, watch } from 'vue';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
-import { Head } from '@inertiajs/vue3';
+import { Head, usePage } from '@inertiajs/vue3';
 import api from '@/api';
 
 interface SummaryResponse {
@@ -207,6 +207,8 @@ const summaryRows = ref<
         durationSeconds: number;
         breakDurationSeconds: number;
         notes: string;
+        entryId?: number;
+        entryType?: string;
     }>
 >([]);
 const dailyTotals = ref({
@@ -222,6 +224,81 @@ const activityLogs = ref<ActivityLog[]>([]);
 const activityLogsLoading = ref(false);
 const selectedActionFilter = ref('');
 const lastPollTimestamp = ref<number>(Date.now());
+
+// Developer edit functionality
+const page = usePage();
+const isDeveloper = computed(() => {
+    const authUser = page.props.auth?.user;
+    return authUser?.role === 'developer';
+});
+
+const editingRow = ref<{
+    index: number;
+    name: string;
+    start: string | null;
+    end: string | null;
+    entryId?: number;
+} | null>(null);
+const editStartTime = ref<string>('');
+const editEndTime = ref<string>('');
+const editSaving = ref(false);
+
+const formatDateTimeLocal = (dateTime: string | null): string => {
+    if (!dateTime) return '';
+    const date = new Date(dateTime);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    const seconds = String(date.getSeconds()).padStart(2, '0');
+    return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}`;
+};
+
+const openEditModal = (row: any, index: number) => {
+    if (!row.entryId) {
+        alert('Cannot edit this entry - no entry ID found');
+        return;
+    }
+    editingRow.value = {
+        index,
+        name: row.name,
+        start: row.start,
+        end: row.end,
+        entryId: row.entryId,
+    };
+    editStartTime.value = row.start ? formatDateTimeLocal(row.start) : '';
+    editEndTime.value = row.end ? formatDateTimeLocal(row.end) : '';
+};
+
+const closeEditModal = () => {
+    editingRow.value = null;
+    editStartTime.value = '';
+    editEndTime.value = '';
+};
+
+const saveEdit = async () => {
+    if (!editingRow.value || !editingRow.value.entryId) return;
+    
+    editSaving.value = true;
+    try {
+        const startISO = editStartTime.value ? new Date(editStartTime.value).toISOString() : null;
+        const endISO = editEndTime.value ? new Date(editEndTime.value).toISOString() : null;
+        
+        await api.put(`/admin/time-entries/${editingRow.value.entryId}`, {
+            clock_in: startISO,
+            clock_out: endISO,
+        });
+        
+        // Reload the data
+        await loadUserDaily();
+        closeEditModal();
+    } catch (e: any) {
+        alert(e?.response?.data?.message || 'Failed to update time entry');
+    } finally {
+        editSaving.value = false;
+    }
+};
 
 // ------------------------------------------------------------
 // User Hours Matrix (per user per day)
@@ -520,6 +597,8 @@ const loadUserDaily = async () => {
                         durationSeconds: breakDur,
                         breakDurationSeconds: breakDur,
                         notes: '-',
+                        entryId: entry.id,
+                        entryType: 'break',
                     });
                 }
                 return;
@@ -547,6 +626,8 @@ const loadUserDaily = async () => {
                     durationSeconds: netWorkDur,
                     breakDurationSeconds: 0,
                     notes: '-',
+                    entryId: entry.id,
+                    entryType: 'work',
                 });
             }
             
@@ -560,6 +641,8 @@ const loadUserDaily = async () => {
                     durationSeconds: taskDur,
                     breakDurationSeconds: 0,
                     notes: '-',
+                    entryId: entry.id,
+                    entryType: 'task',
                 });
             } else if (hasTask && cin && !cout) {
                 // Active task entry
@@ -572,6 +655,8 @@ const loadUserDaily = async () => {
                     durationSeconds: runningSeconds,
                     breakDurationSeconds: 0,
                     notes: 'In progress',
+                    entryId: entry.id,
+                    entryType: 'task',
                 });
             }
         });
@@ -980,6 +1065,7 @@ watch(selectedActionFilter, () => {
                                         <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Duration</th>
                                         <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Break Duration</th>
                                         <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Notes</th>
+                                        <th v-if="isDeveloper" class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody class="divide-y divide-gray-200">
@@ -990,9 +1076,19 @@ watch(selectedActionFilter, () => {
                                         <td class="px-4 py-4 text-sm text-gray-900 font-semibold">{{ formatSecondsToHHMMSS(row.durationSeconds) }}</td>
                                         <td class="px-4 py-4 text-sm text-gray-500">{{ formatSecondsToHHMMSS(row.breakDurationSeconds || 0) }}</td>
                                         <td class="px-4 py-4 text-sm text-gray-500">{{ row.notes || '-' }}</td>
+                                        <td v-if="isDeveloper" class="px-4 py-4 text-sm">
+                                            <button
+                                                v-if="row.entryId"
+                                                @click="openEditModal(row, idx)"
+                                                class="text-indigo-600 hover:text-indigo-900 text-xs font-medium"
+                                            >
+                                                Edit
+                                            </button>
+                                            <span v-else class="text-gray-400 text-xs">-</span>
+                                        </td>
                                     </tr>
                                     <tr v-if="summaryRows.length === 0 && !sessionsLoading">
-                                        <td colspan="6" class="px-4 py-4 text-center text-sm text-gray-500">No entries for selected day</td>
+                                        <td :colspan="isDeveloper ? 7 : 6" class="px-4 py-4 text-center text-sm text-gray-500">No entries for selected day</td>
                                     </tr>
                                 </tbody>
                             </table>
@@ -1230,6 +1326,55 @@ watch(selectedActionFilter, () => {
                                 </tfoot>
                             </table>
                         </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Edit Time Entry Modal (Developer Only) -->
+        <div v-if="editingRow && isDeveloper" class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+            <div class="w-full max-w-md rounded-lg bg-white shadow-lg">
+                <div class="flex items-center justify-between border-b px-4 py-3">
+                    <h4 class="text-md font-semibold">Edit Time Entry</h4>
+                    <button @click="closeEditModal" class="rounded-md bg-gray-100 px-2 py-1 text-xs hover:bg-gray-200">Close</button>
+                </div>
+                <div class="p-4">
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Task</label>
+                        <input type="text" :value="editingRow.name" disabled class="w-full rounded-md border-gray-300 bg-gray-50 text-sm" />
+                    </div>
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Start Time</label>
+                        <input
+                            v-model="editStartTime"
+                            type="datetime-local"
+                            class="w-full rounded-md border-gray-300 shadow-sm text-sm"
+                            step="1"
+                        />
+                    </div>
+                    <div class="mb-4">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">End Time</label>
+                        <input
+                            v-model="editEndTime"
+                            type="datetime-local"
+                            class="w-full rounded-md border-gray-300 shadow-sm text-sm"
+                            step="1"
+                        />
+                    </div>
+                    <div class="flex justify-end gap-2">
+                        <button
+                            @click="closeEditModal"
+                            class="rounded-md bg-gray-200 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-300"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            @click="saveEdit"
+                            :disabled="editSaving"
+                            class="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+                        >
+                            {{ editSaving ? 'Saving...' : 'Save' }}
+                        </button>
                     </div>
                 </div>
             </div>

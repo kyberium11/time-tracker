@@ -171,20 +171,6 @@ const goTaskPage = (page: number) => {
     currentTaskPage.value = clamped;
 };
 
-// Admin activity logs
-const adminActivityLogs = ref<ActivityLog[]>([]);
-const adminActivityLoading = ref(false);
-const loadAdminActivityLogs = async () => {
-    adminActivityLoading.value = true;
-    try {
-        const res = await api.get('/admin/analytics/activity-logs', { params: { limit: 100 } });
-        adminActivityLogs.value = res.data?.data || [];
-    } catch (e) {
-        adminActivityLogs.value = [];
-    } finally {
-        adminActivityLoading.value = false;
-    }
-};
 
 let timeInterval: number | null = null;
 let notificationCheckInterval: number | null = null;
@@ -486,14 +472,6 @@ const fetchUserRole = async () => {
         } catch (e) {
             // ignore; default employee
         }
-    }
-    
-    // Only load admin activity logs for actual admins, not developers
-    if (userRole.value === 'admin') {
-        await loadAdminActivityLogs();
-        setInterval(() => {
-            loadAdminActivityLogs();
-        }, 5000);
     }
 };
 
@@ -2037,38 +2015,6 @@ const formatTaskContent = (content: string | null | undefined) => {
                     </div>
                 </div>
 
-                <!-- Admin: Real-Time Activity Log -->
-                <div v-if="userRole === 'admin'" class="mb-6 overflow-hidden bg-white shadow sm:rounded-lg">
-                    <div class="px-4 py-5 sm:p-6">
-                        <div class="flex items-center justify-between mb-4">
-                            <h3 class="text-lg font-medium leading-6 text-gray-900">Real-Time Activity Log</h3>
-                            <button @click="loadAdminActivityLogs" :disabled="adminActivityLoading" class="rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-500">Refresh</button>
-                        </div>
-                        <div class="overflow-x-auto">
-                            <table class="min-w-full divide-y divide-gray-200">
-                                <thead class="bg-gray-50">
-                                    <tr>
-                                        <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">User</th>
-                                        <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Action</th>
-                                        <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Description</th>
-                                        <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Time</th>
-                                    </tr>
-                                </thead>
-                                <tbody class="divide-y divide-gray-200 bg-white">
-                                    <tr v-for="log in adminActivityLogs" :key="log.id">
-                                        <td class="px-4 py-4 text-sm text-gray-900">{{ log.user?.name || 'Unknown' }}</td>
-                                        <td class="px-4 py-4 text-sm text-gray-500">{{ log.action }}</td>
-                                        <td class="px-4 py-4 text-sm text-gray-500">{{ log.description }}</td>
-                                        <td class="px-4 py-4 text-sm text-gray-500">{{ new Date(log.created_at).toLocaleString() }}</td>
-                                    </tr>
-                                    <tr v-if="adminActivityLogs.length === 0 && !adminActivityLoading">
-                                        <td colspan="4" class="px-4 py-4 text-center text-sm text-gray-500">No activity logs found</td>
-                                    </tr>
-                                </tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
                 </div>
                 <!-- End Dashboard Tab Content -->
 
