@@ -70,20 +70,41 @@ class AnalyticsController extends Controller
                     ]);
                 }
                 
-                $users = User::where('role', 'employee')->where('team_id', $user->managedTeam->id)->get();
+                $users = User::where('role', 'employee')->where('team_id', $user->managedTeam->id)->where('id', '!=', 1)->get();
                 $userIds = $users->pluck('id')->toArray();
                 $entries = TimeEntry::whereBetween('date', [$startDate, $endDate])
                     ->whereNotNull('clock_out')
                     ->whereIn('user_id', $userIds)
                     ->get();
             } elseif ($user->role === 'admin' || $user->role === 'developer') {
-                // Admins and developers see all data
-                $users = User::whereIn('role', ['employee', 'manager', 'developer'])->get();
+                // Admins and developers see all data (except user ID 1)
+                $users = User::whereIn('role', ['employee', 'manager', 'developer'])->where('id', '!=', 1)->get();
                 $entries = TimeEntry::whereBetween('date', [$startDate, $endDate])
                     ->whereNotNull('clock_out')
+                    ->where('user_id', '!=', 1)
                     ->get();
             } else {
-                // Employees see only their own data
+                // Employees see only their own data (except user ID 1)
+                if ($user->id === 1) {
+                    return response()->json([
+                        'period' => $period,
+                        'date_range' => [
+                            'start' => $startDate->format('Y-m-d'),
+                            'end' => $endDate->format('Y-m-d'),
+                        ],
+                        'statistics' => [
+                            'total_employees' => 0,
+                            'total_hours' => 0,
+                            'average_hours' => 0,
+                            'total_entries' => 0,
+                            'perfect_attendance_count' => 0,
+                            'lates_count' => 0,
+                            'undertime_count' => 0,
+                            'overtime_count' => 0,
+                        ],
+                        'top_employees' => [],
+                    ]);
+                }
                 $users = collect([$user]);
                 $entries = TimeEntry::where('user_id', $user->id)
                     ->whereBetween('date', [$startDate, $endDate])
@@ -192,7 +213,7 @@ class AnalyticsController extends Controller
         $selectedUserId = $request->input('user_id');
 
         if ($teamId) {
-            $teamUserQuery = User::where('team_id', $teamId);
+            $teamUserQuery = User::where('team_id', $teamId)->where('id', '!=', 1);
             if ($scopedUserIds !== null) {
                 $teamUserQuery->whereIn('id', $scopedUserIds);
             }
@@ -203,6 +224,10 @@ class AnalyticsController extends Controller
 
         if ($selectedUserId) {
             $selectedUserId = (int) $selectedUserId;
+            // Don't allow filtering by user ID 1
+            if ($selectedUserId === 1) {
+                return response()->json(['data' => []]);
+            }
             if ($scopedUserIds !== null) {
                 if (!in_array($selectedUserId, $scopedUserIds, true)) {
                     // Requested user is outside the allowed scope; return empty.
@@ -226,7 +251,8 @@ class AnalyticsController extends Controller
         $builder = TimeEntry::query()
             ->with(['user:id,name'])
             ->whereBetween('date', [$startDate->toDateString(), $endDate->toDateString()])
-            ->whereNotNull('clock_in');
+            ->whereNotNull('clock_in')
+            ->where('user_id', '!=', 1);
 
         if ($scopedUserIds !== null) {
             $builder->whereIn('user_id', $scopedUserIds);
@@ -365,14 +391,19 @@ class AnalyticsController extends Controller
         $startDate = \Carbon\Carbon::parse($startDateInput)->startOfDay();
         $endDate = \Carbon\Carbon::parse($endDateInput)->endOfDay();
 
-        $usersQuery = User::query()->select(['id', 'name'])->whereIn('role', ['employee', 'manager', 'developer']);
+        $usersQuery = User::query()->select(['id', 'name'])->whereIn('role', ['employee', 'manager', 'developer'])->where('id', '!=', 1);
 
         if ($scopedUserIds !== null) {
             $usersQuery->whereIn('id', $scopedUserIds);
         }
 
         if ($request->filled('user_id')) {
-            $usersQuery->where('id', $request->integer('user_id'));
+            $requestedUserId = $request->integer('user_id');
+            // Don't allow filtering by user ID 1
+            if ($requestedUserId === 1) {
+                return response()->json(['data' => []]);
+            }
+            $usersQuery->where('id', $requestedUserId);
         }
 
         $users = $usersQuery->get();
@@ -566,7 +597,8 @@ class AnalyticsController extends Controller
         $builder = TimeEntry::query();
 
         if ($scopedUserIds === null) {
-            return $builder;
+            // When scopedUserIds is null (admin/developer), exclude user ID 1
+            return $builder->where('user_id', '!=', 1);
         }
 
         return $builder->whereIn('user_id', $scopedUserIds);
@@ -588,11 +620,13 @@ class AnalyticsController extends Controller
             }
 
             return User::where('team_id', $user->managedTeam->id)
+                ->where('id', '!=', 1)
                 ->pluck('id')
                 ->all();
         }
 
-        return [$user->id];
+        // Exclude user ID 1 from employee's own scope
+        return $user->id === 1 ? [] : [$user->id];
     }
 
     private function sumHours($builder): float
@@ -687,6 +721,12 @@ class AnalyticsController extends Controller
     public function myTimeEntries(Request $request)
     {
         $user = Auth::user();
+        
+        // Exclude user ID 1
+        if ($user->id === 1) {
+            return response()->json([]);
+        }
+        
         $startDate = $request->input('start_date', now()->format('Y-m-d'));
         $endDate = $request->input('end_date', now()->format('Y-m-d'));
 
@@ -963,6 +1003,11 @@ class AnalyticsController extends Controller
      */
     public function userAnalytics(Request $request, User $user)
     {
+        // Exclude user ID 1
+        if ($user->id === 1) {
+            return response()->json([]);
+        }
+        
         $startDate = $request->input('start_date', now()->startOfMonth());
         $endDate = $request->input('end_date', now()->endOfMonth());
 
@@ -1094,6 +1139,11 @@ class AnalyticsController extends Controller
 
         if ($request->filled('user_id')) {
             $requestedId = (int) $request->input('user_id');
+
+            // Don't allow filtering by user ID 1
+            if ($requestedId === 1) {
+                return response()->json(['error' => 'Forbidden'], 403);
+            }
 
             if ($scopedUserIds !== null && !in_array($requestedId, $scopedUserIds, true)) {
                 return response()->json(['error' => 'Forbidden'], 403);
@@ -1247,6 +1297,7 @@ class AnalyticsController extends Controller
             
             $userIds = User::where('team_id', $user->managedTeam->id)
                 ->whereIn('role', ['employee', 'developer'])
+                ->where('id', '!=', 1)
                 ->pluck('id')
                 ->toArray();
             $query->whereIn('user_id', $userIds);
@@ -1255,6 +1306,7 @@ class AnalyticsController extends Controller
         // Filter by team if provided (admin and developer only)
         if ($request->has('team_id') && $request->team_id && ($user->role === 'admin' || $user->role === 'developer')) {
             $teamUserIds = User::where('team_id', $request->team_id)
+                ->where('id', '!=', 1)
                 ->pluck('id')
                 ->toArray();
             $query->whereIn('user_id', $teamUserIds);
@@ -1262,6 +1314,15 @@ class AnalyticsController extends Controller
 
         // Filter by user if provided
         if ($request->has('user_id') && $request->user_id) {
+            // Don't allow filtering by user ID 1
+            if ($request->user_id == 1) {
+                return response()->json([
+                    'data' => [],
+                    'current_page' => 1,
+                    'total' => 0,
+                    'per_page' => 50,
+                ]);
+            }
             $query->where('user_id', $request->user_id);
         }
 
@@ -1367,10 +1428,11 @@ class AnalyticsController extends Controller
             
             $users = User::whereIn('role', ['employee', 'developer'])
                 ->where('team_id', $user->managedTeam->id)
+                ->where('id', '!=', 1)
                 ->get(['id', 'name', 'email']);
         } else {
-            // Admins and developers see all roles in dropdown
-            $users = User::whereIn('role', ['employee', 'manager', 'developer'])->get(['id', 'name', 'email']);
+            // Admins and developers see all roles in dropdown (except user ID 1)
+            $users = User::whereIn('role', ['employee', 'manager', 'developer'])->where('id', '!=', 1)->get(['id', 'name', 'email']);
         }
         
         return response()->json($users);
@@ -1388,6 +1450,7 @@ class AnalyticsController extends Controller
         $entries = TimeEntry::with('user')
             ->whereBetween('date', [$startDate, $endDate])
             ->whereNotNull('clock_out')
+            ->where('user_id', '!=', 1)
             ->orderBy('date', 'desc')
             ->get();
 
@@ -1477,6 +1540,11 @@ class AnalyticsController extends Controller
         
         if (!$userId) {
             return response()->json(['error' => 'User ID is required'], 400);
+        }
+        
+        // Don't allow exporting for user ID 1
+        if ($userId == 1) {
+            return response()->json(['error' => 'Forbidden'], 403);
         }
         
         $user = User::find($userId);
@@ -1634,6 +1702,11 @@ class AnalyticsController extends Controller
         
         if (!$userId) {
             return response()->json(['error' => 'User ID is required'], 400);
+        }
+        
+        // Don't allow exporting for user ID 1
+        if ($userId == 1) {
+            return response()->json(['error' => 'Forbidden'], 403);
         }
         
         $user = User::find($userId);
@@ -1866,6 +1939,7 @@ class AnalyticsController extends Controller
             
             $userIds = User::where('team_id', $user->managedTeam->id)
                 ->where('role', 'employee')
+                ->where('id', '!=', 1)
                 ->pluck('id')
                 ->toArray();
             $query->whereIn('user_id', $userIds);
@@ -1873,6 +1947,13 @@ class AnalyticsController extends Controller
 
         // Filter by user if provided
         if ($request->has('user_id') && $request->user_id) {
+            // Don't allow filtering by user ID 1
+            if ($request->user_id == 1) {
+                return response()->json([
+                    'data' => [],
+                    'count' => 0,
+                ]);
+            }
             $query->where('user_id', $request->user_id);
         }
 

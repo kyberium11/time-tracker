@@ -570,6 +570,41 @@ class TaskController extends Controller
     }
 
     /**
+     * Determine if the authenticated user belongs to a ClickUp space based on id or email.
+     */
+    private function userBelongsToSpace(array $space, ?string $clickUpUserId, string $userEmail): bool
+    {
+        $members = data_get($space, 'members', []);
+        if (!is_array($members) || empty($members)) {
+            // When membership data is missing, default to showing the space to avoid hiding access.
+            return true;
+        }
+
+        foreach ($members as $member) {
+            if (!is_array($member)) {
+                continue;
+            }
+
+            $memberUser = $member['user'] ?? $member;
+            if (!is_array($memberUser)) {
+                continue;
+            }
+
+            $memberId = (string) (data_get($memberUser, 'id') ?? '');
+            if ($clickUpUserId && $memberId !== '' && $memberId === $clickUpUserId) {
+                return true;
+            }
+
+            $memberEmail = (string) (data_get($memberUser, 'email') ?? '');
+            if ($memberEmail !== '' && strcasecmp($memberEmail, $userEmail) === 0) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
      * @param mixed $rawIds
      * @return array<int,string>
      */
