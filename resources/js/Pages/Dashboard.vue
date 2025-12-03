@@ -1131,16 +1131,36 @@ const updateStatus = () => {
 };
 
 const clockIn = async (taskId?: number | null) => {
+    // Optimistic update - update UI immediately
+    const now = new Date().toISOString();
+    if (!currentEntry.value) {
+        currentEntry.value = {
+            id: 0,
+            clock_in: now,
+            clock_out: undefined,
+            break_start: undefined,
+            break_end: undefined,
+            lunch_start: undefined,
+            lunch_end: undefined,
+        };
+    } else {
+        currentEntry.value.clock_in = now;
+        currentEntry.value.clock_out = undefined;
+    }
+    
     loading.value = true;
     try {
         const payload: any = {};
         // Only attach task_id when explicitly provided by the user action
         if (typeof taskId === 'number') payload.task_id = taskId;
         await api.post('/time-entries/clock-in', payload);
+        // Sync with server response
         await fetchCurrentEntry();
         await fetchMyTasks();
         await loadTodayEntries();
     } catch (error: any) {
+        // Rollback on error
+        await fetchCurrentEntry();
         alert(error.response?.data?.message || 'Error clocking in');
     } finally {
         loading.value = false;
@@ -1148,14 +1168,20 @@ const clockIn = async (taskId?: number | null) => {
 };
 
 const clockOut = async () => {
+    if (runningTaskId.value) {
+        alert('Pause or stop the running task first.');
+        return;
+    }
+    
+    // Optimistic update - update UI immediately
+    if (currentEntry.value) {
+        currentEntry.value.clock_out = new Date().toISOString();
+    }
+    
     loading.value = true;
     try {
-        if (runningTaskId.value) {
-            alert('Pause or stop the running task first.');
-            loading.value = false;
-            return;
-        }
         await api.post('/time-entries/clock-out');
+        // Sync with server response
         await fetchCurrentEntry();
         await fetchMyTasks();
         await loadTodayEntries();
@@ -1165,6 +1191,8 @@ const clockOut = async () => {
             checkLunchNotification();
         }, 1000);
     } catch (error: any) {
+        // Rollback on error
+        await fetchCurrentEntry();
         alert(error.response?.data?.message || 'Error clocking out');
     } finally {
         loading.value = false;
@@ -1172,13 +1200,23 @@ const clockOut = async () => {
 };
 
 const startBreak = async () => {
+    // Optimistic update - update UI immediately
+    const now = new Date().toISOString();
+    if (currentEntry.value) {
+        currentEntry.value.break_start = now;
+        currentEntry.value.break_end = undefined;
+    }
+    
     loading.value = true;
     try {
         await api.post('/time-entries/break-start');
+        // Sync with server response
         await fetchCurrentEntry();
         await fetchMyTasks();
         await loadTodayEntries();
     } catch (error: any) {
+        // Rollback on error
+        await fetchCurrentEntry();
         alert(error.response?.data?.message || 'Error starting break');
     } finally {
         loading.value = false;
@@ -1186,13 +1224,21 @@ const startBreak = async () => {
 };
 
 const endBreak = async () => {
+    // Optimistic update - update UI immediately
+    if (currentEntry.value) {
+        currentEntry.value.break_end = new Date().toISOString();
+    }
+    
     loading.value = true;
     try {
         await api.post('/time-entries/break-end');
+        // Sync with server response
         await fetchCurrentEntry();
         await fetchMyTasks();
         await loadTodayEntries();
     } catch (error: any) {
+        // Rollback on error
+        await fetchCurrentEntry();
         alert(error.response?.data?.message || 'Error ending break');
     } finally {
         loading.value = false;
@@ -1221,25 +1267,44 @@ const play = async (taskId: number) => {
     if (isOnBreak.value) {
         await breakOut();
     }
+    
+    // Optimistic update - update UI immediately
+    const previousTaskId = runningTaskId.value;
+    runningTaskId.value = taskId;
+    
     // If another task is running, stop it
-    if (runningTaskId.value && runningTaskId.value !== taskId) {
+    if (previousTaskId && previousTaskId !== taskId) {
         try { await api.post('/tasks/stop'); } catch (e) {}
     }
+    
     // Start the selected task WITHOUT altering the day clock-in
     try {
         await api.post('/tasks/start', { task_id: taskId });
-        runningTaskId.value = taskId;
+        // Sync with server response
         await fetchTodayTaskEntries();
     } catch (e: any) {
+        // Rollback on error
+        runningTaskId.value = previousTaskId;
+        await fetchTodayTaskEntries();
         alert(e?.response?.data?.message || 'Failed to start task');
     }
 };
 
 const pause = async () => {
-    // Pause current task
-    try { await api.post('/tasks/stop'); } catch (e) {}
+    // Optimistic update - update UI immediately
+    const previousTaskId = runningTaskId.value;
     runningTaskId.value = null;
-    await fetchTodayTaskEntries();
+    
+    // Pause current task
+    try {
+        await api.post('/tasks/stop');
+        // Sync with server response
+        await fetchTodayTaskEntries();
+    } catch (e) {
+        // Rollback on error
+        runningTaskId.value = previousTaskId;
+        await fetchTodayTaskEntries();
+    }
 };
 
 const stop = async () => {
