@@ -64,6 +64,7 @@ const runningTaskId = ref<number | null>(null);
 const showDailyLogs = ref(false);
 const todayEntries = ref<any[]>([]);
 const todayWorkSeconds = ref<number>(0);
+const todayTaskSeconds = ref<number>(0);
 const taskEntries = ref<any[]>([]);
 const taskDetails = ref<any | null>(null);
 const showTaskModal = ref(false);
@@ -1003,6 +1004,7 @@ const loadTodayEntries = async () => {
         const list: any[] = res.data?.entries || [];
         const rows: any[] = [];
         let workSeconds = 0;
+        let taskSeconds = 0;
         let totalBreakSeconds = 0;
 
         const now = new Date();
@@ -1080,27 +1082,21 @@ const loadTodayEntries = async () => {
 
             // Task entries
             if (hasTask) {
+                let taskDur = 0;
                 if (isClosed && cout) {
-                    const taskDur = Math.max(0, Math.floor((cout.getTime() - cin.getTime()) / 1000));
-                    rows.push({
-                        name: e.task.title || e.task.name,
-                        start: startStr,
-                        end: endStr,
-                        durationSeconds: taskDur,
-                        breakDurationSeconds: 0,
-                        notes: '-'
-                    });
+                    taskDur = Math.max(0, Math.floor((cout.getTime() - cin.getTime()) / 1000));
                 } else {
-                    const runningSeconds = Math.max(0, Math.floor((now.getTime() - cin.getTime()) / 1000));
-                    rows.push({
-                        name: e.task.title || e.task.name,
-                        start: startStr,
-                        end: null,
-                        durationSeconds: runningSeconds,
-                        breakDurationSeconds: 0,
-                        notes: 'In progress'
-                    });
+                    taskDur = Math.max(0, Math.floor((now.getTime() - cin.getTime()) / 1000));
                 }
+                taskSeconds += taskDur;
+                rows.push({
+                    name: e.task.title || e.task.name,
+                    start: startStr,
+                    end: isClosed ? endStr : null,
+                    durationSeconds: taskDur,
+                    breakDurationSeconds: 0,
+                    notes: isClosed ? '-' : 'In progress'
+                });
             }
         });
 
@@ -1112,9 +1108,11 @@ const loadTodayEntries = async () => {
 
         todayEntries.value = rows;
         todayWorkSeconds.value = workSeconds;
+        todayTaskSeconds.value = taskSeconds;
     } catch (e) {
         todayEntries.value = [];
         todayWorkSeconds.value = 0;
+        todayTaskSeconds.value = 0;
     }
 };
 
@@ -2102,36 +2100,50 @@ const formatTaskContent = (content: string | null | undefined) => {
             </div>
             <!-- Daily Logs Modal -->
             <div v-if="showDailyLogs" class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
-                <div class="w-full max-w-2xl rounded-lg bg-white shadow-lg">
-                    <div class="flex items-center justify-between border-b px-4 py-3">
+                <div class="w-full max-w-4xl rounded-lg bg-white shadow-lg flex flex-col max-h-[90vh]">
+                    <div class="flex items-center justify-between border-b px-4 py-3 flex-shrink-0">
                         <h4 class="text-md font-semibold">Daily Logs</h4>
-                        <button @click="showDailyLogs = false" class="rounded-md bg-gray-100 px-2 py-1 text-xs">Close</button>
+                        <button @click="showDailyLogs = false" class="rounded-md bg-gray-100 px-2 py-1 text-xs hover:bg-gray-200">Close</button>
                     </div>
-                    <div class="p-4">
+                    <div class="p-4 flex flex-col flex-1 min-h-0">
                         <div v-if="todayTimeEntries.length === 0" class="text-gray-500 text-sm">No entry today.</div>
-                        <div v-else class="overflow-x-auto">
-                            <table class="min-w-full divide-y divide-gray-200">
-                                <thead class="bg-gray-50">
-                                    <tr>
-                                        <th class="px-4 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Task</th>
-                                        <th class="px-4 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Start Time</th>
-                                        <th class="px-4 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500">End Time</th>
-                                        <th class="px-4 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Duration</th>
-                                        <th class="px-4 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Break Duration</th>
-                                        <th class="px-4 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Notes</th>
-                                    </tr>
-                                </thead>
-                                <tbody class="divide-y divide-gray-200 bg-white">
-                                    <tr v-for="(row, idx) in todayTimeEntries" :key="idx">
-                                        <td class="px-4 py-2 text-sm text-gray-900">{{ row.name }}</td>
-                                        <td class="px-4 py-2 text-sm text-gray-700">{{ formatTimeForEntries(row.start) }}</td>
-                                        <td class="px-4 py-2 text-sm text-gray-700">{{ formatTimeForEntries(row.end) }}</td>
-                                        <td class="px-4 py-2 text-sm text-gray-700 font-semibold">{{ formatSecondsToHHMMSS(row.durationSeconds) }}</td>
-                                        <td class="px-4 py-2 text-sm text-gray-700">{{ formatSecondsToHHMMSS(row.breakDurationSeconds || 0) }}</td>
-                                        <td class="px-4 py-2 text-sm text-gray-700">{{ row.notes || '-' }}</td>
-                                    </tr>
-                                </tbody>
-                            </table>
+                        <div v-else class="flex flex-col flex-1 min-h-0">
+                            <!-- Summary Section -->
+                            <div class="mb-4 flex gap-6 flex-shrink-0">
+                                <div class="flex-1 bg-gray-50 rounded-lg p-4">
+                                    <div class="text-xs font-medium text-gray-500 uppercase tracking-wide">Total Work Hours</div>
+                                    <div class="text-2xl font-bold text-gray-900 mt-1">{{ formatSecondsToHHMMSS(todayWorkSeconds) }}</div>
+                                </div>
+                                <div class="flex-1 bg-gray-50 rounded-lg p-4">
+                                    <div class="text-xs font-medium text-gray-500 uppercase tracking-wide">Total Task Hours</div>
+                                    <div class="text-2xl font-bold text-gray-900 mt-1">{{ formatSecondsToHHMMSS(todayTaskSeconds) }}</div>
+                                </div>
+                            </div>
+                            <!-- Table Section with Scroll -->
+                            <div class="flex-1 overflow-y-auto border border-gray-200 rounded-lg">
+                                <table class="min-w-full divide-y divide-gray-200">
+                                    <thead class="bg-gray-50 sticky top-0">
+                                        <tr>
+                                            <th class="px-4 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Task</th>
+                                            <th class="px-4 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Start Time</th>
+                                            <th class="px-4 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500">End Time</th>
+                                            <th class="px-4 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Duration</th>
+                                            <th class="px-4 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Break Duration</th>
+                                            <th class="px-4 py-2 text-left text-xs font-medium uppercase tracking-wider text-gray-500">Notes</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-gray-200 bg-white">
+                                        <tr v-for="(row, idx) in todayTimeEntries" :key="idx">
+                                            <td class="px-4 py-2 text-sm text-gray-900">{{ row.name }}</td>
+                                            <td class="px-4 py-2 text-sm text-gray-700">{{ formatTimeForEntries(row.start) }}</td>
+                                            <td class="px-4 py-2 text-sm text-gray-700">{{ formatTimeForEntries(row.end) }}</td>
+                                            <td class="px-4 py-2 text-sm text-gray-700 font-semibold">{{ formatSecondsToHHMMSS(row.durationSeconds) }}</td>
+                                            <td class="px-4 py-2 text-sm text-gray-700">{{ formatSecondsToHHMMSS(row.breakDurationSeconds || 0) }}</td>
+                                            <td class="px-4 py-2 text-sm text-gray-700">{{ row.notes || '-' }}</td>
+                                        </tr>
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     </div>
                 </div>
