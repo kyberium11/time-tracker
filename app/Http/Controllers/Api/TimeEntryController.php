@@ -1402,7 +1402,7 @@ class TimeEntryController extends Controller
             }
 
             $hasTask = $entry->task && ($entry->task->title || $entry->task->name);
-            $isClosed = Boolean($cout);
+            $isClosed = (bool) $cout;
 
             // Work hours (no task)
             if (!$hasTask) {
