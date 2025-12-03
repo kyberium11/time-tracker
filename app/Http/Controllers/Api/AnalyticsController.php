@@ -78,7 +78,7 @@ class AnalyticsController extends Controller
                     ->get();
             } elseif ($user->role === 'admin' || $user->role === 'developer') {
                 // Admins and developers see all data (except user ID 1)
-                $users = User::whereIn('role', ['employee', 'manager', 'developer'])->where('id', '!=', 1)->get();
+                $users = User::whereIn('role', ['employee', 'manager', 'developer', 'admin'])->where('id', '!=', 1)->get();
                 $entries = TimeEntry::whereBetween('date', [$startDate, $endDate])
                     ->whereNotNull('clock_out')
                     ->where('user_id', '!=', 1)
@@ -391,7 +391,7 @@ class AnalyticsController extends Controller
         $startDate = \Carbon\Carbon::parse($startDateInput)->startOfDay();
         $endDate = \Carbon\Carbon::parse($endDateInput)->endOfDay();
 
-        $usersQuery = User::query()->select(['id', 'name'])->whereIn('role', ['employee', 'manager', 'developer'])->where('id', '!=', 1);
+        $usersQuery = User::query()->select(['id', 'name'])->whereIn('role', ['employee', 'manager', 'developer', 'admin'])->where('id', '!=', 1);
 
         if ($scopedUserIds !== null) {
             $usersQuery->whereIn('id', $scopedUserIds);
@@ -1432,7 +1432,7 @@ class AnalyticsController extends Controller
                 ->get(['id', 'name', 'email']);
         } else {
             // Admins and developers see all roles in dropdown (except user ID 1)
-            $users = User::whereIn('role', ['employee', 'manager', 'developer'])->where('id', '!=', 1)->get(['id', 'name', 'email']);
+            $users = User::whereIn('role', ['employee', 'manager', 'developer', 'admin'])->where('id', '!=', 1)->get(['id', 'name', 'email']);
         }
         
         return response()->json($users);
@@ -1981,9 +1981,11 @@ class AnalyticsController extends Controller
     {
         $query = User::with(['timeEntries' => function ($query) use ($startDate, $endDate) {
             $query->whereBetween('date', [$startDate, $endDate])
-                  ->whereNotNull('clock_out');
+                  ->whereNotNull('clock_out')
+                  ->where('user_id', '!=', 1);
         }])
-        ->whereIn('role', ['employee', 'manager', 'developer']);
+        ->whereIn('role', ['employee', 'manager', 'developer', 'admin'])
+        ->where('id', '!=', 1);
 
         // If user is a manager, filter by their team
         if ($user->role === 'manager' && $user->managedTeam) {
