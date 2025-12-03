@@ -924,20 +924,29 @@ class AnalyticsController extends Controller
                 }
                 $shiftHours = $shiftStart->diffInHours($shiftEnd);
                 
-                // Check if late (compare first clock in with shift start)
+                // Check if late (compare first clock in with shift start, allow 5 minute grace period)
                 $firstInLocal = $firstIn->copy()->setTimezone('Asia/Manila');
                 $clockInTime = $firstInLocal->format('H:i');
                 $expectedStart = $shiftStart->format('H:i');
-                $isLate = $clockInTime > $expectedStart;
+                // Allow 5 minute grace period before considering late
+                $gracePeriod = $shiftStart->copy()->addMinutes(5);
+                $isLate = $firstInLocal->greaterThan($gracePeriod);
                 
                 // Check if has enough hours (within 0.5 hours tolerance)
                 $hasEnoughHours = ($workSeconds / 3600) >= ($shiftHours - 0.5);
                 
-                if (!$isLate && $hasEnoughHours) {
+                // Status logic:
+                // - If clocked in before/on time (within grace period): Perfect (regardless of hours)
+                // - If clocked in late but has enough hours: Late
+                // - If clocked in late AND doesn't have enough hours: Undertime
+                if (!$isLate) {
+                    // Clocked in on time (before shift start or within 5 min grace period)
                     $status = 'Perfect';
-                } elseif ($isLate) {
+                } elseif ($isLate && $hasEnoughHours) {
+                    // Clocked in late but has enough hours
                     $status = 'Late';
                 } else {
+                    // Clocked in late AND doesn't have enough hours
                     $status = 'Undertime';
                 }
                 
