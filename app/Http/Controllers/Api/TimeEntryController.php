@@ -1466,19 +1466,24 @@ class TimeEntryController extends Controller
             return $db - $da;
         });
 
-        // Calculate totals from rows (more reliable)
-        $totalWorkSeconds = 0;
-        $totalTaskSeconds = 0;
+        // Use the accumulated seconds (already calculated during loop)
+        // Also recalculate from rows as a double-check
+        $totalWorkSecondsFromRows = 0;
+        $totalTaskSecondsFromRows = 0;
         
         foreach ($rows as $row) {
             $duration = isset($row['duration_seconds']) ? (int) $row['duration_seconds'] : 0;
             if ($row['name'] === 'Work Hours') {
-                $totalWorkSeconds += $duration;
+                $totalWorkSecondsFromRows += $duration;
             } elseif ($row['name'] !== 'Break') {
                 // All other entries are tasks
-                $totalTaskSeconds += $duration;
+                $totalTaskSecondsFromRows += $duration;
             }
         }
+        
+        // Use the accumulated values (they should match, but use accumulated as source of truth)
+        $totalWorkSeconds = (int) $workSeconds;
+        $totalTaskSeconds = (int) $taskSeconds;
         
         // Send email (pass seconds instead of hours for more accurate calculation)
         try {
