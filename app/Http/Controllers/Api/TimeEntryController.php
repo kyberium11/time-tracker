@@ -1369,8 +1369,18 @@ class TimeEntryController extends Controller
         $now = Carbon::now();
 
         foreach ($entries as $entry) {
-            $cin = $entry->clock_in ? Carbon::parse($entry->clock_in) : null;
-            $cout = $entry->clock_out ? Carbon::parse($entry->clock_out) : null;
+            try {
+                $cin = $entry->clock_in ? Carbon::parse($entry->clock_in) : null;
+                $cout = $entry->clock_out ? Carbon::parse($entry->clock_out) : null;
+            } catch (\Exception $e) {
+                \Log::warning('Failed to parse date in daily report', [
+                    'entry_id' => $entry->id,
+                    'clock_in' => $entry->clock_in,
+                    'clock_out' => $entry->clock_out,
+                    'error' => $e->getMessage(),
+                ]);
+                continue;
+            }
 
             // Break entries
             if ($entry->entry_type === 'break' || $entry->is_break) {
@@ -1380,10 +1390,10 @@ class TimeEntryController extends Controller
 
                 $isClosed = (bool) $cout;
                 $durationSeconds = 0;
-                if ($isClosed && $cout) {
-                    $durationSeconds = max(0, (int) $cout->diffInSeconds($cin));
-                } else {
-                    $durationSeconds = max(0, (int) $now->diffInSeconds($cin));
+                if ($isClosed && $cout && $cin) {
+                    $durationSeconds = abs((int) $cout->diffInSeconds($cin));
+                } elseif ($cin) {
+                    $durationSeconds = abs((int) $now->diffInSeconds($cin));
                 }
 
                 $rows[] = [
@@ -1405,32 +1415,32 @@ class TimeEntryController extends Controller
             $isClosed = (bool) $cout;
 
             // Work hours (no task)
-            if (!$hasTask) {
+            if (!$hasTask && $cin) {
                 if ($isClosed && $cout) {
-                    $workDur = max(0, (int) $cout->diffInSeconds($cin));
+                    $workDur = abs((int) $cout->diffInSeconds($cin));
                     // Subtract lunch if present
                     $ls = $entry->lunch_start ? Carbon::parse($entry->lunch_start) : null;
                     $le = $entry->lunch_end ? Carbon::parse($entry->lunch_end) : null;
                     $lunchDur = 0;
                     if ($ls && $le) {
-                        $lunchDur = max(0, (int) $le->diffInSeconds($ls));
+                        $lunchDur = abs((int) $le->diffInSeconds($ls));
                     }
                     $net = max(0, $workDur - $lunchDur);
                     $workSeconds += $net;
                     $rows[] = [
                         'name' => 'Work Hours',
-                        'start' => Carbon::parse($entry->clock_in)->format('Y-m-d H:i:s'),
-                        'end' => Carbon::parse($entry->clock_out)->format('Y-m-d H:i:s'),
+                        'start' => $cin->format('Y-m-d H:i:s'),
+                        'end' => $cout->format('Y-m-d H:i:s'),
                         'duration_seconds' => (int) $net,
                         'break_duration_seconds' => 0,
                         'notes' => '-',
                     ];
                 } else {
-                    $runningSeconds = max(0, (int) $now->diffInSeconds($cin));
+                    $runningSeconds = abs((int) $now->diffInSeconds($cin));
                     $workSeconds += $runningSeconds; // Add running seconds to total
                     $rows[] = [
                         'name' => 'Work Hours',
-                        'start' => Carbon::parse($entry->clock_in)->format('Y-m-d H:i:s'),
+                        'start' => $cin->format('Y-m-d H:i:s'),
                         'end' => null,
                         'duration_seconds' => (int) $runningSeconds,
                         'break_duration_seconds' => 0,
@@ -1440,18 +1450,18 @@ class TimeEntryController extends Controller
             }
 
             // Task entries
-            if ($hasTask) {
+            if ($hasTask && $cin) {
                 $taskDur = 0;
                 if ($isClosed && $cout) {
-                    $taskDur = max(0, (int) $cout->diffInSeconds($cin));
+                    $taskDur = abs((int) $cout->diffInSeconds($cin));
                 } else {
-                    $taskDur = max(0, (int) $now->diffInSeconds($cin));
+                    $taskDur = abs((int) $now->diffInSeconds($cin));
                 }
                 $taskSeconds += $taskDur;
                 $rows[] = [
                     'name' => $entry->task->title ?? $entry->task->name ?? 'Task',
-                    'start' => Carbon::parse($entry->clock_in)->format('Y-m-d H:i:s'),
-                    'end' => $isClosed && $entry->clock_out ? Carbon::parse($entry->clock_out)->format('Y-m-d H:i:s') : null,
+                    'start' => $cin->format('Y-m-d H:i:s'),
+                    'end' => $isClosed && $cout ? $cout->format('Y-m-d H:i:s') : null,
                     'duration_seconds' => (int) $taskDur,
                     'break_duration_seconds' => 0,
                     'notes' => $isClosed ? '-' : 'In progress',
