@@ -65,6 +65,7 @@ const showDailyLogs = ref(false);
 const todayEntries = ref<any[]>([]);
 const todayWorkSeconds = ref<number>(0);
 const todayTaskSeconds = ref<number>(0);
+const sendingReport = ref(false);
 const taskEntries = ref<any[]>([]);
 const taskDetails = ref<any | null>(null);
 const showTaskModal = ref(false);
@@ -972,6 +973,23 @@ const openDailyLogs = async () => {
     showDailyLogs.value = true;
 };
 
+const sendDailyReport = async () => {
+    if (sendingReport.value) return;
+    
+    sendingReport.value = true;
+    try {
+        // Ensure we have the latest entries
+        await loadTodayEntries();
+        
+        await api.post('/my/daily-report/send');
+        alert('Daily report sent successfully to your email!');
+    } catch (e: any) {
+        alert(e?.response?.data?.message || 'Failed to send daily report');
+    } finally {
+        sendingReport.value = false;
+    }
+};
+
 // Load ALL entries for today and build rows/summary (used for modal and 0/8)
 const loadTodayEntries = async () => {
     try {
@@ -1864,6 +1882,9 @@ const formatTaskContent = (content: string | null | undefined) => {
                             <p class="mt-2 text-3xl font-bold text-gray-900">{{ workingHoursToday }}<span class="text-sm font-normal text-gray-500"> / 8 Hours</span></p>
                             <div class="mt-4 flex space-x-2">
                                 <button @click="openDailyLogs" class="rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-indigo-700">Daily Logs</button>
+                                <button @click="sendDailyReport" :disabled="sendingReport" class="rounded-md bg-green-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-green-700 disabled:opacity-50">
+                                    {{ sendingReport ? 'Sending...' : 'Send Report' }}
+                                </button>
                             </div>
                         </div>
                     </div>

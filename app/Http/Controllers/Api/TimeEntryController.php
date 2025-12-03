@@ -8,9 +8,11 @@ use App\Models\Task;
 use App\Models\UserActivityLog;
 use App\Services\ClickUpService;
 use App\Support\ClickUpConfig;
+use App\Mail\DailyReportMail;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Mail;
 
 class TimeEntryController extends Controller
 {
@@ -1342,6 +1344,152 @@ class TimeEntryController extends Controller
             ]);
             // Optionally update status to closed
             // $clickUp->updateTaskStatus((string) $reportTaskId, 'closed');
+        }
+    }
+
+    /**
+     * Send daily report email to the current user.
+     */
+    public function sendDailyReport()
+    {
+        $user = Auth::user();
+        $today = Carbon::today();
+        
+        // Get all entries for today
+        $entries = TimeEntry::with('task')
+            ->where('user_id', $user->id)
+            ->where('date', $today)
+            ->orderBy('clock_in', 'asc')
+            ->get();
+
+        // Process entries similar to frontend logic
+        $rows = [];
+        $workSeconds = 0;
+        $taskSeconds = 0;
+        $now = Carbon::now();
+
+        foreach ($entries as $entry) {
+            $cin = $entry->clock_in ? Carbon::parse($entry->clock_in) : null;
+            $cout = $entry->clock_out ? Carbon::parse($entry->clock_out) : null;
+
+            // Break entries
+            if ($entry->entry_type === 'break' || $entry->is_break) {
+                if (!$cin) {
+                    continue;
+                }
+
+                $isClosed = Boolean($cout);
+                $durationSeconds = 0;
+                if ($isClosed && $cout) {
+                    $durationSeconds = max(0, $cout->diffInSeconds($cin));
+                } else {
+                    $durationSeconds = max(0, $now->diffInSeconds($cin));
+                }
+
+                $rows[] = [
+                    'name' => 'Break',
+                    'start' => $entry->clock_in ? Carbon::parse($entry->clock_in)->format('Y-m-d H:i:s') : null,
+                    'end' => $isClosed && $entry->clock_out ? Carbon::parse($entry->clock_out)->format('Y-m-d H:i:s') : null,
+                    'duration_seconds' => $durationSeconds,
+                    'break_duration_seconds' => $durationSeconds,
+                    'notes' => $isClosed ? '-' : 'In progress',
+                ];
+                continue;
+            }
+
+            if (!$cin) {
+                continue;
+            }
+
+            $hasTask = $entry->task && ($entry->task->title || $entry->task->name);
+            $isClosed = Boolean($cout);
+
+            // Work hours (no task)
+            if (!$hasTask) {
+                if ($isClosed && $cout) {
+                    $workDur = max(0, $cout->diffInSeconds($cin));
+                    // Subtract lunch if present
+                    $ls = $entry->lunch_start ? Carbon::parse($entry->lunch_start) : null;
+                    $le = $entry->lunch_end ? Carbon::parse($entry->lunch_end) : null;
+                    $lunchDur = 0;
+                    if ($ls && $le) {
+                        $lunchDur = max(0, $le->diffInSeconds($ls));
+                    }
+                    $net = max(0, $workDur - $lunchDur);
+                    $workSeconds += $net;
+                    $rows[] = [
+                        'name' => 'Work Hours',
+                        'start' => Carbon::parse($entry->clock_in)->format('Y-m-d H:i:s'),
+                        'end' => Carbon::parse($entry->clock_out)->format('Y-m-d H:i:s'),
+                        'duration_seconds' => $net,
+                        'break_duration_seconds' => 0,
+                        'notes' => '-',
+                    ];
+                } else {
+                    $runningSeconds = max(0, $now->diffInSeconds($cin));
+                    $rows[] = [
+                        'name' => 'Work Hours',
+                        'start' => Carbon::parse($entry->clock_in)->format('Y-m-d H:i:s'),
+                        'end' => null,
+                        'duration_seconds' => $runningSeconds,
+                        'break_duration_seconds' => 0,
+                        'notes' => 'In progress',
+                    ];
+                }
+            }
+
+            // Task entries
+            if ($hasTask) {
+                $taskDur = 0;
+                if ($isClosed && $cout) {
+                    $taskDur = max(0, $cout->diffInSeconds($cin));
+                } else {
+                    $taskDur = max(0, $now->diffInSeconds($cin));
+                }
+                $taskSeconds += $taskDur;
+                $rows[] = [
+                    'name' => $entry->task->title ?? $entry->task->name ?? 'Task',
+                    'start' => Carbon::parse($entry->clock_in)->format('Y-m-d H:i:s'),
+                    'end' => $isClosed && $entry->clock_out ? Carbon::parse($entry->clock_out)->format('Y-m-d H:i:s') : null,
+                    'duration_seconds' => $taskDur,
+                    'break_duration_seconds' => 0,
+                    'notes' => $isClosed ? '-' : 'In progress',
+                ];
+            }
+        }
+
+        // Sort rows by start time (newest first)
+        usort($rows, function ($a, $b) {
+            $da = $a['start'] ? strtotime($a['start']) : 0;
+            $db = $b['start'] ? strtotime($b['start']) : 0;
+            return $db - $da;
+        });
+
+        // Calculate totals
+        $totalWorkHours = round($workSeconds / 3600, 2);
+        $totalTaskHours = round($taskSeconds / 3600, 2);
+
+        // Send email
+        try {
+            Mail::to($user->email)->send(new DailyReportMail(
+                $user->name,
+                $today->format('Y-m-d'),
+                $rows,
+                $totalWorkHours,
+                $totalTaskHours
+            ));
+
+            return response()->json([
+                'message' => 'Daily report sent successfully',
+            ]);
+        } catch (\Exception $e) {
+            \Log::error('Failed to send daily report email', [
+                'user_id' => $user->id,
+                'error' => $e->getMessage(),
+            ]);
+            return response()->json([
+                'message' => 'Failed to send daily report: ' . $e->getMessage(),
+            ], 500);
         }
     }
 }
