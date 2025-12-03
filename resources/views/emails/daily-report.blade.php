@@ -117,9 +117,10 @@
                 <div class="summary-label">Total Work Hours</div>
                 <div class="summary-value">
                     @php
-                        $workH = floor($totalWorkSeconds / 3600);
-                        $workM = floor(($totalWorkSeconds % 3600) / 60);
-                        $workS = $totalWorkSeconds % 60;
+                        $workTotal = isset($totalWorkSeconds) ? (int) $totalWorkSeconds : 0;
+                        $workH = floor($workTotal / 3600);
+                        $workM = floor(($workTotal % 3600) / 60);
+                        $workS = $workTotal % 60;
                     @endphp
                     {{ sprintf('%02d:%02d:%02d', $workH, $workM, $workS) }}
                 </div>
@@ -128,9 +129,10 @@
                 <div class="summary-label">Total Task Hours</div>
                 <div class="summary-value">
                     @php
-                        $taskH = floor($totalTaskSeconds / 3600);
-                        $taskM = floor(($totalTaskSeconds % 3600) / 60);
-                        $taskS = $totalTaskSeconds % 60;
+                        $taskTotal = isset($totalTaskSeconds) ? (int) $totalTaskSeconds : 0;
+                        $taskH = floor($taskTotal / 3600);
+                        $taskM = floor(($taskTotal % 3600) / 60);
+                        $taskS = $taskTotal % 60;
                     @endphp
                     {{ sprintf('%02d:%02d:%02d', $taskH, $taskM, $taskS) }}
                 </div>
@@ -169,17 +171,19 @@
                     </td>
                     <td class="text-right duration">
                         @php
-                            $hours = floor($entry['duration_seconds'] / 3600);
-                            $minutes = floor(($entry['duration_seconds'] % 3600) / 60);
-                            $seconds = $entry['duration_seconds'] % 60;
+                            $durSeconds = isset($entry['duration_seconds']) ? (int) $entry['duration_seconds'] : 0;
+                            $hours = floor($durSeconds / 3600);
+                            $minutes = floor(($durSeconds % 3600) / 60);
+                            $seconds = $durSeconds % 60;
                         @endphp
                         {{ sprintf('%02d:%02d:%02d', $hours, $minutes, $seconds) }}
                     </td>
                     <td class="text-right">
                         @php
-                            $breakHours = floor($entry['break_duration_seconds'] / 3600);
-                            $breakMinutes = floor(($entry['break_duration_seconds'] % 3600) / 60);
-                            $breakSeconds = $entry['break_duration_seconds'] % 60;
+                            $breakDurSeconds = isset($entry['break_duration_seconds']) ? (int) $entry['break_duration_seconds'] : 0;
+                            $breakHours = floor($breakDurSeconds / 3600);
+                            $breakMinutes = floor(($breakDurSeconds % 3600) / 60);
+                            $breakSeconds = $breakDurSeconds % 60;
                         @endphp
                         {{ sprintf('%02d:%02d:%02d', $breakHours, $breakMinutes, $breakSeconds) }}
                     </td>
