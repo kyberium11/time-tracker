@@ -13,8 +13,8 @@ class DailyReportMail extends Mailable
     public string $userName;
     public string $date;
     public array $entries;
-    public float $totalWorkHours;
-    public float $totalTaskHours;
+    public int $totalWorkSeconds;
+    public int $totalTaskSeconds;
 
     /**
      * Create a new message instance.
@@ -23,14 +23,14 @@ class DailyReportMail extends Mailable
         string $userName,
         string $date,
         array $entries,
-        float $totalWorkHours,
-        float $totalTaskHours
+        int $totalWorkSeconds,
+        int $totalTaskSeconds
     ) {
         $this->userName = $userName;
         $this->date = $date;
         $this->entries = $entries;
-        $this->totalWorkHours = $totalWorkHours;
-        $this->totalTaskHours = $totalTaskHours;
+        $this->totalWorkSeconds = $totalWorkSeconds;
+        $this->totalTaskSeconds = $totalTaskSeconds;
     }
 
     /**
@@ -44,8 +44,8 @@ class DailyReportMail extends Mailable
                 'userName' => $this->userName,
                 'date' => $this->date,
                 'entries' => $this->entries,
-                'totalWorkHours' => $this->totalWorkHours,
-                'totalTaskHours' => $this->totalTaskHours,
+                'totalWorkSeconds' => $this->totalWorkSeconds,
+                'totalTaskSeconds' => $this->totalTaskSeconds,
             ]);
     }
 }

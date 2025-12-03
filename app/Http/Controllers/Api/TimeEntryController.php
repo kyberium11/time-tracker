@@ -1465,18 +1465,27 @@ class TimeEntryController extends Controller
             return $db - $da;
         });
 
-        // Calculate totals
-        $totalWorkHours = round($workSeconds / 3600, 2);
-        $totalTaskHours = round($taskSeconds / 3600, 2);
-
-        // Send email
+        // Calculate totals from rows (more reliable)
+        $totalWorkSeconds = 0;
+        $totalTaskSeconds = 0;
+        
+        foreach ($rows as $row) {
+            if ($row['name'] === 'Work Hours') {
+                $totalWorkSeconds += $row['duration_seconds'];
+            } elseif ($row['name'] !== 'Break') {
+                // All other entries are tasks
+                $totalTaskSeconds += $row['duration_seconds'];
+            }
+        }
+        
+        // Send email (pass seconds instead of hours for more accurate calculation)
         try {
             Mail::to($user->email)->send(new DailyReportMail(
                 $user->name,
                 $today->format('Y-m-d'),
                 $rows,
-                $totalWorkHours,
-                $totalTaskHours
+                $totalWorkSeconds,
+                $totalTaskSeconds
             ));
 
             return response()->json([

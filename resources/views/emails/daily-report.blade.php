@@ -117,10 +117,9 @@
                 <div class="summary-label">Total Work Hours</div>
                 <div class="summary-value">
                     @php
-                        $workTotalSeconds = (int)($totalWorkHours * 3600);
-                        $workH = floor($workTotalSeconds / 3600);
-                        $workM = floor(($workTotalSeconds % 3600) / 60);
-                        $workS = $workTotalSeconds % 60;
+                        $workH = floor($totalWorkSeconds / 3600);
+                        $workM = floor(($totalWorkSeconds % 3600) / 60);
+                        $workS = $totalWorkSeconds % 60;
                     @endphp
                     {{ sprintf('%02d:%02d:%02d', $workH, $workM, $workS) }}
                 </div>
@@ -129,10 +128,9 @@
                 <div class="summary-label">Total Task Hours</div>
                 <div class="summary-value">
                     @php
-                        $taskTotalSeconds = (int)($totalTaskHours * 3600);
-                        $taskH = floor($taskTotalSeconds / 3600);
-                        $taskM = floor(($taskTotalSeconds % 3600) / 60);
-                        $taskS = $taskTotalSeconds % 60;
+                        $taskH = floor($totalTaskSeconds / 3600);
+                        $taskM = floor(($totalTaskSeconds % 3600) / 60);
+                        $taskS = $totalTaskSeconds % 60;
                     @endphp
                     {{ sprintf('%02d:%02d:%02d', $taskH, $taskM, $taskS) }}
                 </div>
