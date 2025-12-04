@@ -165,7 +165,13 @@ const filteredTasks = computed(() => {
         base = base.filter(t => t.due_date ? new Date(t.due_date).getTime() <= end : false);
     }
     if (!q) return base;
-    return base.filter(t => (t.title || '').toLowerCase().includes(q));
+
+    // Search by task title and campaign (ClickUp list name)
+    return base.filter(t => {
+        const title = (t.title || '').toLowerCase();
+        const campaign = (t.clickup_list_name || '').toLowerCase();
+        return title.includes(q) || campaign.includes(q);
+    });
 });
 
 const totalTaskPages = computed(() => {
