@@ -59,6 +59,7 @@ const status = ref('');
 const currentTime = ref(new Date());
 const userRole = ref<'admin' | 'manager' | 'employee' | 'developer'>('employee');
 const tasks = ref<TaskItem[]>([]);
+type TaskTab = 'ongoing' | 'complete';
 const selectedTaskId = ref<number | null>(null); // deprecated UI, will be removed
 const runningTaskId = ref<number | null>(null);
 const showDailyLogs = ref(false);
@@ -122,6 +123,7 @@ const taskSearch = ref('');
 const currentTaskPage = ref(1);
 const tasksPerPage = ref(10);
 const taskStatusFilter = ref<string>('all');
+const taskTab = ref<TaskTab>('ongoing');
 const availableStatuses = computed<string[]>(() => {
     const set = new Set<string>();
     (tasks.value || []).forEach(t => {
@@ -133,10 +135,19 @@ const availableStatuses = computed<string[]>(() => {
 const taskPriorityFilter = ref<'all' | 'urgent' | 'high' | 'normal' | 'low' | 'none'>('all');
 const dueStart = ref<string>('');
 const dueEnd = ref<string>('');
+const isCompletedStatus = (status: string | null | undefined): boolean => {
+    const normalized = (status || '').toString().trim().toLowerCase();
+    return normalized === 'complete' || normalized === 'completed';
+};
 
 const filteredTasks = computed(() => {
     const q = taskSearch.value.trim().toLowerCase();
-    let base = tasks.value;
+    const baseList = tasks.value.filter(task => {
+        return taskTab.value === 'complete'
+            ? isCompletedStatus(task.status)
+            : !isCompletedStatus(task.status);
+    });
+    let base = baseList;
     if (taskStatusFilter.value !== 'all') {
         const target = taskStatusFilter.value.toLowerCase();
         base = base.filter(t => (t.status || '').toLowerCase() === target);
@@ -170,6 +181,12 @@ const paginatedTasks = computed(() => {
 const goTaskPage = (page: number) => {
     const clamped = Math.max(1, Math.min(page, totalTaskPages.value));
     currentTaskPage.value = clamped;
+};
+
+const changeTaskTab = (tab: TaskTab) => {
+    if (taskTab.value === tab) return;
+    taskTab.value = tab;
+    goTaskPage(1);
 };
 
 
@@ -1893,9 +1910,9 @@ const formatTaskContent = (content: string | null | undefined) => {
                 <!-- Task List with Play/Pause/Stop (all roles) -->
                 <div class="mb-6 overflow-hidden bg-white shadow sm:rounded-lg">
                     <div class="px-4 py-5 sm:p-6">
-                        <div class="flex items-center justify-between mb-3">
-                            <h3 class="text-lg font-medium leading-6 text-gray-900">My Tasks</h3>
-                            <div class="flex items-center gap-2">
+                        <div class="mb-4 space-y-4">
+                            <div class="flex flex-wrap items-center justify-between gap-3">
+                                <h3 class="text-lg font-medium leading-6 text-gray-900">My Tasks</h3>
                                 <button
                                     @click="openSpaceSelectionModal"
                                     :disabled="taskSyncLoading"
@@ -1907,6 +1924,28 @@ const formatTaskContent = (content: string | null | undefined) => {
                                     ></span>
                                     <span>{{ taskSyncLoading ? 'Syncing…' : 'Refresh from ClickUp' }}</span>
                                 </button>
+                            </div>
+                            <div class="border-b border-gray-200">
+                                <nav class="-mb-px flex space-x-6" aria-label="Task tabs">
+                                    <button
+                                        type="button"
+                                        @click="changeTaskTab('ongoing')"
+                                        class="whitespace-nowrap border-b-2 px-1 pb-2 text-sm font-medium"
+                                        :class="taskTab === 'ongoing' ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
+                                    >
+                                        On Going
+                                    </button>
+                                    <button
+                                        type="button"
+                                        @click="changeTaskTab('complete')"
+                                        class="whitespace-nowrap border-b-2 px-1 pb-2 text-sm font-medium"
+                                        :class="taskTab === 'complete' ? 'border-indigo-500 text-indigo-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
+                                    >
+                                        Complete
+                                    </button>
+                                </nav>
+                            </div>
+                            <div class="flex flex-wrap items-center gap-2">
                                 <input v-model="taskSearch" @input="goTaskPage(1)" type="text" placeholder="Search tasks" class="rounded-md border-gray-300 text-sm shadow-sm" />
                                 <select v-model="taskStatusFilter" @change="goTaskPage(1)" class="rounded-md border-gray-300 text-sm shadow-sm">
                                     <option value="all">All</option>
