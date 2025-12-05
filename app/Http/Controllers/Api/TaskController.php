@@ -34,11 +34,21 @@ class TaskController extends Controller
             ->withSum('timeEntries', 'total_hours')
             ->orderByRaw($statusOrdering)
             ->orderBy('updated_at', 'desc')
-            ->get(['id', 'title', 'status', 'priority', 'due_date', 'clickup_task_id', 'clickup_parent_id', 'estimated_time', 'clickup_list_name']);
+            ->get();
 
         // Add parent task name and played time to each task
         $tasks->transform(function ($task) {
-            $taskArray = $task->toArray();
+            $taskArray = $task->only([
+                'id',
+                'title',
+                'status',
+                'priority',
+                'due_date',
+                'clickup_task_id',
+                'clickup_parent_id',
+                'estimated_time',
+                'clickup_list_name',
+            ]);
             $taskArray['parent_task_name'] = $task->parentTask ? $task->parentTask->title : null;
             // Calculate played time in milliseconds (total_hours is in hours, convert to milliseconds)
             $playedHours = (float) ($task->time_entries_sum_total_hours ?? 0);
