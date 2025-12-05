@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed, onUnmounted } from 'vue';
+import { ref, onMounted, computed, onUnmounted, watch } from 'vue';
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout.vue';
 import { Head, usePage } from '@inertiajs/vue3';
 import api from '@/api';
@@ -125,6 +125,9 @@ const currentTaskPage = ref(1);
 const tasksPerPage = ref(10);
 const taskStatusFilter = ref<string>('all');
 const taskTab = ref<TaskTab>('ongoing');
+const showUnsyncedTaskModal = ref(false);
+const unsyncedTaskId = ref<string | null>(null);
+const syncingTask = ref(false);
 const availableStatuses = computed<string[]>(() => {
     const set = new Set<string>();
     (tasks.value || []).forEach(t => {
@@ -141,8 +144,22 @@ const isCompletedStatus = (status: string | null | undefined): boolean => {
     return normalized === 'complete' || normalized === 'completed';
 };
 
+// Extract ClickUp task ID from URL
+const extractClickUpTaskId = (input: string): string | null => {
+    const urlPattern = /\/t\/([a-zA-Z0-9]+)/;
+    const match = input.match(urlPattern);
+    if (match) {
+        return match[1];
+    }
+    // If it's just the task ID (alphanumeric), return it
+    if (/^[a-zA-Z0-9]+$/.test(input.trim())) {
+        return input.trim();
+    }
+    return null;
+};
+
 const filteredTasks = computed(() => {
-    const q = taskSearch.value.trim().toLowerCase();
+    const q = taskSearch.value.trim();
     const baseList = tasks.value.filter(task => {
         return taskTab.value === 'complete'
             ? isCompletedStatus(task.status)
@@ -167,11 +184,34 @@ const filteredTasks = computed(() => {
     }
     if (!q) return base;
 
-    // Search by task title and campaign (ClickUp list name)
+    // Check if input is a ClickUp URL or task ID
+    const clickUpTaskId = extractClickUpTaskId(q);
+    if (clickUpTaskId) {
+        // Search for task by ClickUp task ID
+        const matchingTasks = base.filter(t => {
+            const taskId = (t.clickup_task_id || '').toLowerCase();
+            return taskId === clickUpTaskId.toLowerCase();
+        });
+        
+        // If found, prioritize at top
+        if (matchingTasks.length > 0) {
+            const nonMatching = base.filter(t => {
+                const taskId = (t.clickup_task_id || '').toLowerCase();
+                return taskId !== clickUpTaskId.toLowerCase();
+            });
+            return [...matchingTasks, ...nonMatching];
+        } else {
+            // Task not found - will be handled by watcher
+            return base; // Return all tasks for now
+        }
+    }
+
+    // Regular search by task title and campaign (ClickUp list name)
+    const qLower = q.toLowerCase();
     return base.filter(t => {
         const title = (t.title || '').toLowerCase();
         const campaign = (t.clickup_list_name || '').toLowerCase();
-        return title.includes(q) || campaign.includes(q);
+        return title.includes(qLower) || campaign.includes(qLower);
     });
 });
 
@@ -411,6 +451,43 @@ const handleBeforeUnload = (e: BeforeUnloadEvent) => {
         return ''; // For older browsers
     }
 };
+
+// Watch for ClickUp URL search and show modal if task not found
+let searchTimeout: number | null = null;
+watch(taskSearch, (newValue) => {
+    // Clear previous timeout
+    if (searchTimeout !== null) {
+        clearTimeout(searchTimeout);
+    }
+    
+    // Debounce the check
+    searchTimeout = window.setTimeout(() => {
+        const q = newValue.trim();
+        if (!q) {
+            return;
+        }
+        
+        const clickUpTaskId = extractClickUpTaskId(q);
+        if (clickUpTaskId) {
+            // Check if task exists in current tasks list
+            const taskExists = tasks.value.some(t => {
+                const taskId = (t.clickup_task_id || '').toLowerCase();
+                return taskId === clickUpTaskId.toLowerCase();
+            });
+            
+            // Also check parent tasks
+            const parentTaskExists = tasks.value.some(t => {
+                // We'd need to check parent tasks, but for now just check direct task
+                return false; // Parent task check would require loading parent task data
+            });
+            
+            if (!taskExists && !parentTaskExists) {
+                unsyncedTaskId.value = clickUpTaskId;
+                showUnsyncedTaskModal.value = true;
+            }
+        }
+    }, 500); // Wait 500ms after user stops typing
+});
 
 onMounted(async () => {
     const today = new Date();
@@ -798,6 +875,35 @@ const refreshMyTasksFromClickUp = async (spaceIds: string[] | null = null) => {
         alert(e?.response?.data?.error || 'Failed to sync tasks from ClickUp');
     } finally {
         taskSyncLoading.value = false;
+    }
+};
+
+const syncUnsyncedTask = async () => {
+    if (!unsyncedTaskId.value) return;
+    
+    syncingTask.value = true;
+    try {
+        const res = await api.post('/my/clickup/sync-task', {
+            clickup_task_id: unsyncedTaskId.value,
+        });
+        
+        if (res.data?.ok) {
+            // Refresh tasks list
+            await fetchMyTasks();
+            // Clear search to show the newly synced task
+            taskSearch.value = '';
+            // Close modal
+            showUnsyncedTaskModal.value = false;
+            unsyncedTaskId.value = null;
+            alert('Task synced successfully!');
+        } else {
+            alert('Failed to sync task');
+        }
+    } catch (e: any) {
+        const errorMsg = e?.response?.data?.error || e?.response?.data?.message || 'Failed to sync task from ClickUp';
+        alert(errorMsg);
+    } finally {
+        syncingTask.value = false;
     }
 };
 
@@ -2460,6 +2566,46 @@ const formatTaskContent = (content: string | null | undefined) => {
                                     </div>
                                 </li>
                             </ul>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Unsynced Task Modal -->
+            <div v-if="showUnsyncedTaskModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+                <div class="w-full max-w-md rounded-lg bg-white shadow-lg">
+                    <div class="flex items-center justify-between border-b px-4 py-3">
+                        <h4 class="text-md font-semibold">Task Not Synced</h4>
+                        <button @click="showUnsyncedTaskModal = false; unsyncedTaskId = null" class="rounded-md bg-gray-100 px-2 py-1 text-xs hover:bg-gray-200">Close</button>
+                    </div>
+                    <div class="p-6">
+                        <div class="mb-4">
+                            <p class="text-sm text-gray-700 mb-2">
+                                The task with ClickUp ID <strong>{{ unsyncedTaskId }}</strong> has not been synced to your task list.
+                            </p>
+                            <p class="text-sm text-gray-600">
+                                Would you like to sync this task from ClickUp now?
+                            </p>
+                        </div>
+                        <div class="flex items-center justify-end gap-3">
+                            <button
+                                @click="showUnsyncedTaskModal = false; unsyncedTaskId = null"
+                                class="rounded-md bg-gray-200 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-300"
+                                :disabled="syncingTask"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                @click="syncUnsyncedTask"
+                                class="rounded-md bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed flex items-center gap-2"
+                                :disabled="syncingTask"
+                            >
+                                <span
+                                    v-if="syncingTask"
+                                    class="h-4 w-4 rounded-full border-2 border-white border-t-transparent animate-spin"
+                                ></span>
+                                <span>{{ syncingTask ? 'Syncing...' : 'Sync Task' }}</span>
+                            </button>
                         </div>
                     </div>
                 </div>

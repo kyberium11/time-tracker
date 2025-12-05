@@ -105,6 +105,98 @@ class TaskController extends Controller
     }
 
     /**
+     * Sync a single task by ClickUp task ID (can be URL or just the ID).
+     */
+    public function syncByClickUpId(Request $request, ClickUpService $clickUp)
+    {
+        $user = Auth::user();
+        if (!$user) {
+            return response()->json(['error' => 'Unauthorized'], 401);
+        }
+
+        $clickUpTaskId = $request->input('clickup_task_id');
+        if (!$clickUpTaskId) {
+            return response()->json(['error' => 'ClickUp task ID is required'], 400);
+        }
+
+        // Extract task ID from URL if provided (e.g., https://app.clickup.com/t/86c6973r9)
+        if (preg_match('/\/t\/([a-zA-Z0-9]+)/', $clickUpTaskId, $matches)) {
+            $clickUpTaskId = $matches[1];
+        }
+
+        // Fetch task from ClickUp
+        $remote = $clickUp->getTask($clickUpTaskId);
+        
+        if (isset($remote['__error'])) {
+            return response()->json([
+                'error' => 'Failed to fetch task from ClickUp',
+                'message' => $remote['__error']['body'] ?? 'Unknown error',
+            ], 404);
+        }
+
+        if (empty($remote) || !is_array($remote)) {
+            return response()->json(['error' => 'Task not found in ClickUp'], 404);
+        }
+
+        // Check if task is assigned to the user
+        $assigneeId = $user->clickup_user_id ? (string) $user->clickup_user_id : null;
+        $assigneeEmail = !$assigneeId ? (string) $user->email : null;
+
+        if (!$this->clickUpTaskMatchesAssignee($remote, $assigneeId, $assigneeEmail)) {
+            return response()->json(['error' => 'Task is not assigned to you'], 403);
+        }
+
+        // Create or update the task
+        $taskId = (string) (data_get($remote, 'id') ?? '');
+        $clickupName = (string) (data_get($remote, 'name') ?: ('Task ' . $taskId));
+        $clickupUrl = (string) (data_get($remote, 'url') ?: ('https://app.clickup.com/t/' . $taskId));
+        $displayTitle = trim($clickupName . ' - ' . $clickupUrl);
+        $priority = (string) (
+            data_get($remote, 'priority.label')
+            ?: data_get($remote, 'priority.priority')
+            ?: data_get($remote, 'priority')
+            ?: ''
+        ) ?: null;
+        $dueDate = ($ms = data_get($remote, 'due_date')) ? Carbon::createFromTimestampMs((int) $ms) : null;
+        
+        $listId = (string) (data_get($remote, 'list.id') ?? '');
+        $listName = (string) (data_get($remote, 'list.name') ?? '');
+
+        $task = Task::firstOrNew(['clickup_task_id' => $taskId]);
+        $wasCreated = !$task->exists;
+
+        $estimatedTime = null;
+        if (data_get($remote, 'time_estimate')) {
+            $estimatedTime = (int) data_get($remote, 'time_estimate');
+        } elseif (data_get($remote, 'time_estimates.total_estimate')) {
+            $estimatedTime = (int) data_get($remote, 'time_estimates.total_estimate');
+        } elseif (data_get($remote, 'time_estimates.total_estimated')) {
+            $estimatedTime = (int) data_get($remote, 'time_estimates.total_estimated');
+        }
+
+        $task->fill([
+            'user_id' => $user->id,
+            'title' => $displayTitle,
+            'description' => (string) data_get($remote, 'text_content'),
+            'status' => (string) data_get($remote, 'status.status'),
+            'priority' => $priority,
+            'clickup_parent_id' => (string) (data_get($remote, 'parent') ?: null),
+            'clickup_list_id' => $listId ?: null,
+            'clickup_list_name' => $listName ?: null,
+            'due_date' => $dueDate,
+            'estimated_time' => $estimatedTime,
+        ]);
+
+        $task->save();
+
+        return response()->json([
+            'ok' => true,
+            'task' => $task,
+            'created' => $wasCreated,
+        ]);
+    }
+
+    /**
      * Update local task status and sync to ClickUp if linked.
      */
     public function updateStatus(string $id, Request $request, ClickUpService $clickUp)
