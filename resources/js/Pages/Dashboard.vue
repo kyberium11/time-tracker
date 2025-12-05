@@ -23,6 +23,7 @@ interface TaskItem {
     due_date?: string | null;
     clickup_task_id: string;
     estimated_time?: number | null; // in milliseconds
+    played_time?: number | null; // in milliseconds
     clickup_list_name?: string | null;
     parent_task_name?: string | null;
 }
@@ -1645,6 +1646,13 @@ const formatEstimatedTime = (ms: number | null | undefined) => {
     return formatSecondsToHHMMSS(totalSeconds);
 };
 
+// Format played time / estimated time display
+const formatPlayedOverEstimated = (playedMs: number | null | undefined, estimatedMs: number | null | undefined) => {
+    const played = playedMs && playedMs > 0 ? formatEstimatedTime(playedMs) : '0:00:00';
+    const estimated = estimatedMs && estimatedMs > 0 ? formatEstimatedTime(estimatedMs) : '--';
+    return `${played} / ${estimated}`;
+};
+
 // Status pill styling helper
 const getStatusClasses = (status: string | null) => {
     if (!status) return '';
@@ -1991,8 +1999,8 @@ const formatTaskContent = (content: string | null | undefined) => {
                                 </thead>
                                 <tbody class="divide-y divide-gray-200 bg-white">
                                     <tr v-for="t in paginatedTasks" :key="t.id">
-                                        <td class="whitespace-nowrap px-6 py-4 text-sm text-indigo-600">
-                                            <button @click="openTaskDetails(t.id)" class="hover:underline">{{ t.title }}</button>
+                                        <td class="px-6 py-4 text-sm text-indigo-600 max-w-md">
+                                            <button @click="openTaskDetails(t.id)" class="hover:underline truncate block w-full text-left">{{ t.title }}</button>
                                         </td>
                                         <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-900">{{ t.clickup_list_name || '--' }}</td>
                                         <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-900">{{ t.parent_task_name || 'N/A' }}</td>
@@ -2009,7 +2017,7 @@ const formatTaskContent = (content: string | null | undefined) => {
                                             </span>
                                         </td>
                                         <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-900">{{ t.due_date ? new Date(t.due_date).toLocaleDateString() : '--' }}</td>
-                                        <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500">{{ formatEstimatedTime(t.estimated_time) }}</td>
+                                        <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-500">{{ formatPlayedOverEstimated(t.played_time, t.estimated_time) }}</td>
                                         <td class="whitespace-nowrap px-6 py-4 text-sm">
                                             <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold" :class="getPriorityClasses(t.priority || null)">
                                                 {{ t.priority || 'None' }}
