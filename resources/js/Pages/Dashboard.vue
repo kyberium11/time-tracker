@@ -144,18 +144,20 @@ const isCompletedStatus = (status: string | null | undefined): boolean => {
     return normalized === 'complete' || normalized === 'completed';
 };
 
-// Extract ClickUp task ID from URL
+// Extract ClickUp task ID from URL (only from URL format, not plain text)
 const extractClickUpTaskId = (input: string): string | null => {
-    const urlPattern = /\/t\/([a-zA-Z0-9]+)/;
+    // Only match ClickUp URL format: https://app.clickup.com/t/86c6973r9 or app.clickup.com/t/86c6973r9
+    const urlPattern = /(?:https?:\/\/)?(?:app\.)?clickup\.com\/t\/([a-zA-Z0-9]+)/i;
     const match = input.match(urlPattern);
     if (match) {
         return match[1];
     }
-    // If it's just the task ID (alphanumeric), return it
-    if (/^[a-zA-Z0-9]+$/.test(input.trim())) {
-        return input.trim();
-    }
     return null;
+};
+
+// Check if input is a ClickUp URL format
+const isClickUpUrl = (input: string): boolean => {
+    return extractClickUpTaskId(input) !== null;
 };
 
 const filteredTasks = computed(() => {
@@ -184,25 +186,27 @@ const filteredTasks = computed(() => {
     }
     if (!q) return base;
 
-    // Check if input is a ClickUp URL or task ID
-    const clickUpTaskId = extractClickUpTaskId(q);
-    if (clickUpTaskId) {
-        // Search for task by ClickUp task ID
-        const matchingTasks = base.filter(t => {
-            const taskId = (t.clickup_task_id || '').toLowerCase();
-            return taskId === clickUpTaskId.toLowerCase();
-        });
-        
-        // If found, prioritize at top
-        if (matchingTasks.length > 0) {
-            const nonMatching = base.filter(t => {
+    // Check if input is a ClickUp URL format
+    if (isClickUpUrl(q)) {
+        const clickUpTaskId = extractClickUpTaskId(q);
+        if (clickUpTaskId) {
+            // Search for task by ClickUp task ID
+            const matchingTasks = base.filter(t => {
                 const taskId = (t.clickup_task_id || '').toLowerCase();
-                return taskId !== clickUpTaskId.toLowerCase();
+                return taskId === clickUpTaskId.toLowerCase();
             });
-            return [...matchingTasks, ...nonMatching];
-        } else {
-            // Task not found - will be handled by watcher
-            return base; // Return all tasks for now
+            
+            // If found, prioritize at top
+            if (matchingTasks.length > 0) {
+                const nonMatching = base.filter(t => {
+                    const taskId = (t.clickup_task_id || '').toLowerCase();
+                    return taskId !== clickUpTaskId.toLowerCase();
+                });
+                return [...matchingTasks, ...nonMatching];
+            } else {
+                // Task not found - will be handled by watcher
+                return base; // Return all tasks for now
+            }
         }
     }
 
@@ -467,23 +471,20 @@ watch(taskSearch, (newValue) => {
             return;
         }
         
-        const clickUpTaskId = extractClickUpTaskId(q);
-        if (clickUpTaskId) {
-            // Check if task exists in current tasks list
-            const taskExists = tasks.value.some(t => {
-                const taskId = (t.clickup_task_id || '').toLowerCase();
-                return taskId === clickUpTaskId.toLowerCase();
-            });
-            
-            // Also check parent tasks
-            const parentTaskExists = tasks.value.some(t => {
-                // We'd need to check parent tasks, but for now just check direct task
-                return false; // Parent task check would require loading parent task data
-            });
-            
-            if (!taskExists && !parentTaskExists) {
-                unsyncedTaskId.value = clickUpTaskId;
-                showUnsyncedTaskModal.value = true;
+        // Only check for ClickUp URL format, not plain text
+        if (isClickUpUrl(q)) {
+            const clickUpTaskId = extractClickUpTaskId(q);
+            if (clickUpTaskId) {
+                // Check if task exists in current tasks list
+                const taskExists = tasks.value.some(t => {
+                    const taskId = (t.clickup_task_id || '').toLowerCase();
+                    return taskId === clickUpTaskId.toLowerCase();
+                });
+                
+                if (!taskExists) {
+                    unsyncedTaskId.value = clickUpTaskId;
+                    showUnsyncedTaskModal.value = true;
+                }
             }
         }
     }, 500); // Wait 500ms after user stops typing
