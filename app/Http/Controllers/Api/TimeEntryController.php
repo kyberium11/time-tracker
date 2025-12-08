@@ -368,9 +368,22 @@ class TimeEntryController extends Controller
             return response()->json(['message' => 'Invalid task'], 422);
         }
 
+        // CRITICAL: Check if user is clocked in (has an open work entry)
+        $today = Carbon::today();
+        $openWorkEntry = TimeEntry::where('user_id', $user->id)
+            ->where('date', $today)
+            ->where('entry_type', 'work')
+            ->whereNotNull('clock_in')
+            ->whereNull('clock_out')
+            ->first();
+
+        if (!$openWorkEntry) {
+            return response()->json(['message' => 'Please Time In first before starting a task.'], 400);
+        }
+
         // Close any open task timer for today first
         TimeEntry::where('user_id', $user->id)
-            ->whereDate('created_at', Carbon::today())
+            ->where('date', $today)
             ->whereNotNull('task_id')
             ->whereNull('clock_out')
             ->update(['clock_out' => Carbon::now()]);
@@ -392,9 +405,10 @@ class TimeEntryController extends Controller
     public function stopTask(ClickUpService $clickUp)
     {
         $user = Auth::user();
+        $today = Carbon::today();
         $open = TimeEntry::with('task')
             ->where('user_id', $user->id)
-            ->whereDate('created_at', Carbon::today())
+            ->where('date', $today)
             ->whereNotNull('task_id')
             ->whereNull('clock_out')
             ->latest('id')

@@ -63,6 +63,19 @@ const tasks = ref<TaskItem[]>([]);
 type TaskTab = 'ongoing' | 'complete';
 const selectedTaskId = ref<number | null>(null); // deprecated UI, will be removed
 const runningTaskId = ref<number | null>(null);
+const idsMatch = (a: any, b: any) => {
+    if (a === null || a === undefined || b === null || b === undefined) return false;
+    return String(a) === String(b);
+};
+const findTaskById = (id: number | string | null) => {
+    if (id === null) return undefined;
+    return tasks.value.find(t => idsMatch(t.id, id));
+};
+const isRunningTask = (taskId: number | string | null | undefined) => idsMatch(runningTaskId.value, taskId);
+const runningTaskTitle = computed(() => {
+    if (!runningTaskId.value) return null;
+    return findTaskById(runningTaskId.value)?.title || `#${runningTaskId.value}`;
+});
 const showDailyLogs = ref(false);
 const todayEntries = ref<any[]>([]);
 const todayWorkSeconds = ref<number>(0);
@@ -1394,6 +1407,7 @@ const startLunch = async () => {
 
 // Task row controls
 const play = async (taskId: number) => {
+    // Double-check clock-in status (server will also validate)
     if (!isClockedIn.value) {
         alert('Please Time In first before starting a task.');
         return;
@@ -1422,7 +1436,12 @@ const play = async (taskId: number) => {
         // Rollback on error
         runningTaskId.value = previousTaskId;
         await fetchTodayTaskEntries();
-        alert(e?.response?.data?.message || 'Failed to start task');
+        const errorMsg = e?.response?.data?.message || 'Failed to start task';
+        alert(errorMsg);
+        // If server rejected due to not clocked in, refresh current entry to sync state
+        if (e?.response?.status === 400 && errorMsg.includes('Time In')) {
+            await fetchCurrentEntry();
+        }
     }
 };
 
@@ -2141,8 +2160,8 @@ const formatTaskContent = (content: string | null | undefined) => {
                                         </td>
                                         <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-900">
                                             <div class="flex items-center space-x-2">
-                                                <button @click="runningTaskId === t.id ? pause() : play(t.id)" :disabled="loading" class="rounded-full p-2 text-white" :class="runningTaskId === t.id ? 'bg-yellow-600 hover:bg-yellow-700' : 'bg-green-600 hover:bg-green-700'" :aria-label="runningTaskId === t.id ? 'Pause' : 'Play'">
-                                                    <svg v-if="runningTaskId !== t.id" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="h-4 w-4"><path d="M8 5v14l11-7z"/></svg>
+                                                <button @click="isRunningTask(t.id) ? pause() : play(t.id)" :disabled="loading || !isClockedIn" class="rounded-full p-2 text-white disabled:opacity-50 disabled:cursor-not-allowed" :class="isRunningTask(t.id) ? 'bg-yellow-600 hover:bg-yellow-700' : 'bg-green-600 hover:bg-green-700'" :aria-label="isRunningTask(t.id) ? 'Pause' : 'Play'" :title="!isClockedIn ? 'Please Time In first before starting a task' : (isRunningTask(t.id) ? 'Pause' : 'Play')">
+                                                    <svg v-if="!isRunningTask(t.id)" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="h-4 w-4"><path d="M8 5v14l11-7z"/></svg>
                                                     <svg v-else xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="h-4 w-4"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>
                                                 </button>
                                                 <select :value="t.status || ''" @change="onChangeStatus(t.id, ($event.target as HTMLSelectElement).value)" class="rounded-md border-gray-300 text-xs shadow-sm">
