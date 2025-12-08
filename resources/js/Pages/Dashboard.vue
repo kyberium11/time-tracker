@@ -581,7 +581,11 @@ const fetchUserRole = async () => {
 const fetchMyTasks = async () => {
     try {
         const response = await api.get('/my/tasks');
-        tasks.value = response.data;
+        // Normalize ID to number to avoid strict comparison issues in the UI
+        tasks.value = (response.data || []).map((t: any) => ({
+            ...t,
+            id: t?.id !== undefined ? Number(t.id) : t.id,
+        }));
         // Do NOT auto-select or auto-start any task to avoid unintended runs
     } catch (e) {
         // ignore if none
@@ -933,7 +937,11 @@ const breakOut = async () => {
 const fetchTodayTaskEntries = async () => {
     try {
         const res = await api.get('/tasks/today-entries');
-        taskEntries.value = res.data || [];
+        // Ensure task_id is numeric for consistent comparisons
+        taskEntries.value = (res.data || []).map((t: any) => ({
+            ...t,
+            task_id: t?.task_id !== undefined ? Number(t.task_id) : t.task_id,
+        }));
         const open = (taskEntries.value || []).find((t: any) => t.clock_in && !t.clock_out);
         runningTaskId.value = open ? open.task_id : null;
     } catch (e) {
@@ -1397,7 +1405,8 @@ const play = async (taskId: number) => {
     
     // Optimistic update - update UI immediately
     const previousTaskId = runningTaskId.value;
-    runningTaskId.value = taskId;
+    const normalizedTaskId = Number(taskId);
+    runningTaskId.value = isNaN(normalizedTaskId) ? taskId : normalizedTaskId;
     
     // If another task is running, stop it
     if (previousTaskId && previousTaskId !== taskId) {
@@ -1406,7 +1415,7 @@ const play = async (taskId: number) => {
     
     // Start the selected task WITHOUT altering the day clock-in
     try {
-        await api.post('/tasks/start', { task_id: taskId });
+        await api.post('/tasks/start', { task_id: normalizedTaskId });
         // Sync with server response
         await fetchTodayTaskEntries();
     } catch (e: any) {
