@@ -55,7 +55,7 @@ const installClickLogger = () => {
 
     const handler = (event: MouseEvent) => {
         const target = event.target as HTMLElement | null;
-        const clickable = target?.closest('a,button,[role="button"],input,select,textarea');
+        const clickable = target?.closest('a,button,[role="button"],input,select,textarea') as HTMLElement | null;
         if (!clickable) return;
 
         const now = Date.now();
@@ -72,9 +72,37 @@ const installClickLogger = () => {
 
         if (clickable.id) metadata.id = clickable.id;
         if (clickable.className) metadata.class = clickable.className;
+        if (clickable instanceof HTMLAnchorElement && clickable.href) {
+            metadata.href = clickable.getAttribute('href') || clickable.href;
+        }
+
+        // Collect data-* attributes from target or closest ancestors (up to 3 levels)
+        const dataset: Record<string, unknown> = {};
+        let current: HTMLElement | null = clickable;
+        let depth = 0;
+        while (current && depth < 3) {
+            if (current.dataset) {
+                Object.entries(current.dataset).forEach(([key, value]) => {
+                    if (value && !(key in dataset)) {
+                        dataset[key] = value;
+                    }
+                });
+            }
+            current = current.parentElement;
+            depth += 1;
+        }
+        if (Object.keys(dataset).length > 0) {
+            metadata.dataset = dataset;
+        }
+
+        const actionText = (dataset.action as string)
+            || (dataset.taskName as string)
+            || (dataset.task as string)
+            || text
+            || `Clicked ${metadata.tag}`;
 
         window.axios?.post('/api/activity/log', {
-            description: text || `Clicked ${metadata.tag}`,
+            description: actionText,
             path: window.location.pathname + window.location.search,
             metadata,
         }).catch(() => {
