@@ -45,6 +45,47 @@ router.on('start', (event) => {
     }
 });
 
+// Basic click logging to capture user journey during a session
+const installClickLogger = () => {
+    if ((window as any).__clickLoggerInstalled) return;
+    (window as any).__clickLoggerInstalled = true;
+
+    let lastSentAt = 0;
+    const minIntervalMs = 250; // throttle to reduce noise
+
+    const handler = (event: MouseEvent) => {
+        const target = event.target as HTMLElement | null;
+        const clickable = target?.closest('a,button,[role="button"],input,select,textarea');
+        if (!clickable) return;
+
+        const now = Date.now();
+        if (now - lastSentAt < minIntervalMs) return;
+        lastSentAt = now;
+
+        const text = (clickable.textContent || clickable.getAttribute('aria-label') || clickable.getAttribute('title') || '')
+            ?.trim()
+            .slice(0, 180);
+
+        const metadata: Record<string, unknown> = {
+            path: window.location.pathname + window.location.search,
+            tag: clickable.tagName.toLowerCase(),
+        };
+
+        if (clickable.id) metadata.id = clickable.id;
+        if (clickable.className) metadata.class = clickable.className;
+
+        window.axios?.post('/api/activity/log', {
+            action: 'click',
+            description: text || `Clicked ${metadata.tag}`,
+            metadata,
+        }).catch(() => {
+            // Ignore logging errors on the client
+        });
+    };
+
+    document.addEventListener('click', handler, { capture: true });
+};
+
 createInertiaApp({
     title: (title) => `${title} - ${appName}`,
     resolve: (name) =>
@@ -57,6 +98,8 @@ createInertiaApp({
             .use(plugin)
             .use(ZiggyVue)
             .mount(el);
+
+        installClickLogger();
     },
     progress: {
         color: '#4B5563',

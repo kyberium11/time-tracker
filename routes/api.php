@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\UserManagementController;
 use App\Http\Controllers\Api\TeamController;
 use App\Http\Controllers\Api\TaskController;
 use App\Http\Controllers\Api\ClickUpWebhookController;
+use App\Http\Controllers\Api\SessionLogController;
 use App\Http\Controllers\Api\ClickUpLogController;
 use Illuminate\Support\Facades\Route;
 
@@ -21,6 +22,9 @@ use Illuminate\Support\Facades\Route;
 */
 
 Route::middleware(['auth:sanctum'])->group(function () {
+    // Session / activity logs
+    Route::post('/activity/log', [SessionLogController::class, 'store']);
+
     // Time Entry Routes
     Route::prefix('time-entries')->group(function () {
         Route::get('/current', [TimeEntryController::class, 'getCurrentEntry']);
@@ -104,6 +108,7 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::put('/time-entries/{id}', [TimeEntryController::class, 'update']);
         Route::delete('/time-entries/{id}', [TimeEntryController::class, 'destroy']);
         Route::get('/tasks', [TaskController::class, 'index']);
+        Route::get('/session-logs', [SessionLogController::class, 'index']);
     });
 
     // Impersonation routes

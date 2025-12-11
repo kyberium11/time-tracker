@@ -67,6 +67,12 @@ Route::middleware('auth')->group(function () {
     })
         ->middleware(['role:developer'])
         ->name('time-entries.index');
+
+    Route::get('/session-logs', function () {
+        return Inertia::render('SessionLogs');
+    })
+        ->middleware(['role:developer'])
+        ->name('session-logs.index');
     
     // Impersonation routes (admin and developer only)
     Route::middleware(['role:admin,developer'])->group(function () {
