@@ -67,7 +67,6 @@ const installClickLogger = () => {
             .slice(0, 180);
 
         const metadata: Record<string, unknown> = {
-            path: window.location.pathname + window.location.search,
             tag: clickable.tagName.toLowerCase(),
         };
 
@@ -75,8 +74,8 @@ const installClickLogger = () => {
         if (clickable.className) metadata.class = clickable.className;
 
         window.axios?.post('/api/activity/log', {
-            action: 'click',
             description: text || `Clicked ${metadata.tag}`,
+            path: window.location.pathname + window.location.search,
             metadata,
         }).catch(() => {
             // Ignore logging errors on the client

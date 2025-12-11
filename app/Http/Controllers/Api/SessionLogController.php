@@ -4,14 +4,14 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
-use App\Models\UserActivityLog;
+use App\Models\SessionClickLog;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 
 class SessionLogController extends Controller
 {
     /**
-     * List session/activity logs with filters.
+     * List session click logs with filters.
      * Developer-only via route middleware.
      */
     public function index(Request $request)
@@ -25,7 +25,7 @@ class SessionLogController extends Controller
 
         $perPage = $validated['per_page'] ?? 50;
 
-        $logsQuery = UserActivityLog::with('user')
+        $logsQuery = SessionClickLog::with('user')
             ->orderByDesc('created_at');
 
         if (!empty($validated['user_id'])) {
@@ -62,13 +62,13 @@ class SessionLogController extends Controller
     }
 
     /**
-     * Store a user activity log. Intended for client-side click tracking.
+     * Store a click-only activity log.
      */
     public function store(Request $request)
     {
         $validated = $request->validate([
-            'action' => ['required', 'string', 'max:100'],
             'description' => ['nullable', 'string', 'max:1000'],
+            'path' => ['nullable', 'string', 'max:255'],
             'metadata' => ['nullable', 'array'],
         ]);
 
@@ -85,10 +85,10 @@ class SessionLogController extends Controller
         $metadata = $validated['metadata'] ?? [];
         $validated['metadata'] = $metadata ? array_slice($metadata, 0, 20) : null;
 
-        UserActivityLog::create([
+        SessionClickLog::create([
             'user_id' => Auth::id(),
-            'action' => $validated['action'],
             'description' => $validated['description'] ?? null,
+            'path' => $validated['path'] ?? request()->path(),
             'metadata' => $validated['metadata'],
         ]);
 

@@ -7,8 +7,8 @@ import axios from 'axios';
 type UserOption = { id: number; name: string; role: string };
 type ActivityLog = {
     id: number;
-    action: string;
     description?: string | null;
+    path?: string | null;
     metadata?: Record<string, unknown> | null;
     created_at: string;
     user?: UserOption | null;
@@ -159,7 +159,7 @@ watch(
                             <tr>
                                 <th class="px-4 py-3 text-left font-medium text-gray-500">Timestamp</th>
                                 <th class="px-4 py-3 text-left font-medium text-gray-500">User</th>
-                                <th class="px-4 py-3 text-left font-medium text-gray-500">Action</th>
+                                <th class="px-4 py-3 text-left font-medium text-gray-500">Path</th>
                                 <th class="px-4 py-3 text-left font-medium text-gray-500">Description</th>
                                 <th class="px-4 py-3 text-left font-medium text-gray-500">Metadata</th>
                             </tr>
@@ -184,9 +184,7 @@ watch(
                                     <div class="text-xs text-gray-500">{{ log.user?.role ?? 'n/a' }}</div>
                                 </td>
                                 <td class="px-4 py-3 text-gray-900">
-                                    <span class="rounded bg-indigo-50 px-2 py-1 text-xs font-semibold text-indigo-700">
-                                        {{ log.action }}
-                                    </span>
+                                    <div class="text-xs text-gray-500">{{ log.path || '-' }}</div>
                                 </td>
                                 <td class="px-4 py-3 text-gray-700 max-w-xs">
                                     <p class="line-clamp-3 whitespace-pre-wrap">
