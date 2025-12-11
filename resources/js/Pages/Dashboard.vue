@@ -2003,10 +2003,22 @@ const formatTaskContent = (content: string | null | undefined) => {
                                 <p class="text-sm text-gray-600">Break Timer: <span class="font-semibold">{{ breakDisplay }}</span></p>
                             </div>
                             <div class="mt-4 flex flex-wrap gap-2">
-                                <button @click="toggleWork" :disabled="loading" :class="['rounded-md px-3 py-1.5 text-xs font-semibold text-white', isClockedIn ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700']">
+                                <button
+                                    @click="toggleWork"
+                                    :disabled="loading"
+                                    :data-action="isClockedIn ? 'time_out' : 'time_in'"
+                                    class="rounded-md px-3 py-1.5 text-xs font-semibold text-white"
+                                    :class="isClockedIn ? 'bg-red-600 hover:bg-red-700' : 'bg-green-600 hover:bg-green-700'"
+                                >
                                     {{ isClockedIn ? 'Time Out' : 'Time In' }}
                                 </button>
-                                <button @click="toggleBreak" :disabled="loading" :class="['rounded-md px-3 py-1.5 text-xs font-semibold text-white', isOnBreak ? 'bg-orange-600 hover:bg-orange-700' : 'bg-yellow-600 hover:bg-yellow-700']">
+                                <button
+                                    @click="toggleBreak"
+                                    :disabled="loading"
+                                    :data-action="isOnBreak ? 'break_out' : 'break_in'"
+                                    class="rounded-md px-3 py-1.5 text-xs font-semibold text-white"
+                                    :class="isOnBreak ? 'bg-orange-600 hover:bg-orange-700' : 'bg-yellow-600 hover:bg-yellow-700'"
+                                >
                                     {{ isOnBreak ? 'Break Out' : 'Break In' }}
                                 </button>
                             </div>
@@ -2025,7 +2037,16 @@ const formatTaskContent = (content: string | null | undefined) => {
                                     {{ runningTaskDisplay }}<span v-if="tasks.find(t => t.id === runningTaskId)?.estimated_time" class="text-sm font-normal text-gray-500"> / {{ formatEstimatedTime(tasks.find(t => t.id === runningTaskId)?.estimated_time) }}</span>
                                 </p>
                                 <div class="mt-3">
-                                    <button @click="pause()" :disabled="loading" class="rounded-md bg-yellow-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-yellow-700">Pause</button>
+                                    <button
+                                        @click="pause()"
+                                        :disabled="loading"
+                                        data-action="pause_task"
+                                        :data-task-id="runningTaskId || undefined"
+                                        :data-task-name="tasks.find(t => t.id === runningTaskId)?.title || undefined"
+                                        class="rounded-md bg-yellow-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-yellow-700"
+                                    >
+                                        Pause
+                                    </button>
                                 </div>
                             </div>
                             <div v-else class="mt-2">
@@ -2034,7 +2055,16 @@ const formatTaskContent = (content: string | null | undefined) => {
                                         <option :value="null">Select a task</option>
                                         <option v-for="t in tasks" :key="t.id" :value="t.id">{{ t.title }}</option>
                                     </select>
-                                    <button @click="selectedTaskId ? play(selectedTaskId) : undefined" :disabled="loading || !selectedTaskId" class="rounded-md bg-green-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-green-700 disabled:opacity-50">Start</button>
+                                    <button
+                                        @click="selectedTaskId ? play(selectedTaskId) : undefined"
+                                        :disabled="loading || !selectedTaskId"
+                                        data-action="play_task"
+                                        :data-task-id="selectedTaskId || undefined"
+                                        :data-task-name="tasks.find(t => t.id === selectedTaskId)?.title || undefined"
+                                        class="rounded-md bg-green-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-green-700 disabled:opacity-50"
+                                    >
+                                        Start
+                                    </button>
                                 </div>
                                 <p v-if="!tasks.length" class="text-sm text-gray-500 mt-2">No tasks available.</p>
                             </div>
@@ -2160,7 +2190,17 @@ const formatTaskContent = (content: string | null | undefined) => {
                                         </td>
                                         <td class="whitespace-nowrap px-6 py-4 text-sm text-gray-900">
                                             <div class="flex items-center space-x-2">
-                                                <button @click="isRunningTask(t.id) ? pause() : play(t.id)" :disabled="loading || !isClockedIn" class="rounded-full p-2 text-white disabled:opacity-50 disabled:cursor-not-allowed" :class="isRunningTask(t.id) ? 'bg-yellow-600 hover:bg-yellow-700' : 'bg-green-600 hover:bg-green-700'" :aria-label="isRunningTask(t.id) ? 'Pause' : 'Play'" :title="!isClockedIn ? 'Please Time In first before starting a task' : (isRunningTask(t.id) ? 'Pause' : 'Play')">
+                                                <button
+                                                    @click="isRunningTask(t.id) ? pause() : play(t.id)"
+                                                    :disabled="loading || !isClockedIn"
+                                                    :data-action="isRunningTask(t.id) ? 'pause_task' : 'play_task'"
+                                                    :data-task-id="t.id"
+                                                    :data-task-name="t.title"
+                                                    class="rounded-full p-2 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                                                    :class="isRunningTask(t.id) ? 'bg-yellow-600 hover:bg-yellow-700' : 'bg-green-600 hover:bg-green-700'"
+                                                    :aria-label="isRunningTask(t.id) ? 'Pause' : 'Play'"
+                                                    :title="!isClockedIn ? 'Please Time In first before starting a task' : (isRunningTask(t.id) ? 'Pause' : 'Play')"
+                                                >
                                                     <svg v-if="!isRunningTask(t.id)" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="h-4 w-4"><path d="M8 5v14l11-7z"/></svg>
                                                     <svg v-else xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="h-4 w-4"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>
                                                 </button>
