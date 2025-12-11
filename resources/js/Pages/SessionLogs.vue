@@ -9,7 +9,7 @@ type ActivityLog = {
     id: number;
     description?: string | null;
     path?: string | null;
-    metadata?: Record<string, unknown> | null;
+    metadata?: Record<string, any> | null;
     created_at: string;
     user?: UserOption | null;
 };
@@ -61,10 +61,18 @@ const formatDateTime = (value?: string) => {
     return date.toLocaleString();
 };
 
-const readableMetadata = (metadata?: Record<string, unknown> | null) => {
+const readableMetadata = (metadata?: Record<string, any> | null) => {
     if (!metadata || Object.keys(metadata).length === 0) return '-';
+
+    // Prefer explicit task name if present in dataset
+    const dataset = metadata.dataset || {};
+    const taskName = dataset.taskName || dataset.task || metadata.taskName || metadata.task;
+    if (taskName) return taskName;
+
+    // Fallback to a compact JSON string
     try {
-        return JSON.stringify(metadata);
+        const json = JSON.stringify(metadata);
+        return json.length > 120 ? json.slice(0, 117) + '...' : json;
     } catch (e) {
         return '-';
     }
