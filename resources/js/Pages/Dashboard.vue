@@ -1961,8 +1961,8 @@ const formatTaskContent = (content: string | null | undefined) => {
 
         <div class="py-12">
             <div class="mx-auto max-w-[95%] sm:px-6 lg:px-8">
-                <!-- Tab Navigation for Employees and Developers -->
-                <div v-if="userRole !== 'admin'" class="border-b border-gray-200 mb-6">
+                <!-- Tab Navigation for Employees, Developers, and Admins -->
+                <div class="border-b border-gray-200 mb-6">
                     <nav class="-mb-px flex space-x-8">
                         <button
                             @click="activeTab = 'dashboard'"
@@ -1990,7 +1990,7 @@ const formatTaskContent = (content: string | null | undefined) => {
                 </div>
 
                 <!-- Dashboard Tab Content -->
-                <div v-if="activeTab === 'dashboard' || userRole === 'admin' || userRole === 'developer'">
+                <div v-if="activeTab === 'dashboard'">
                 <!-- Header Cards: Work Day Timer, Running Task, Daily Logs (all roles) -->
                 <div class="mb-6 grid gap-4 md:grid-cols-3">
                     <!-- Work Day Timer -->
@@ -2268,7 +2268,7 @@ const formatTaskContent = (content: string | null | undefined) => {
                 <!-- End Dashboard Tab Content -->
 
                 <!-- Time Entries Tab Content -->
-                <div v-if="activeTab === 'time-entries' && userRole !== 'admin'" class="space-y-6">
+                <div v-if="activeTab === 'time-entries'" class="space-y-6">
                     <!-- Filters -->
                     <div class="bg-white shadow rounded-lg p-4">
                         <div class="grid gap-4 sm:grid-cols-2">
