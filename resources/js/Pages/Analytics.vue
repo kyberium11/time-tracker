@@ -756,9 +756,34 @@ const exportUserSummaryPdf = () => {
     window.location.href = `/api/admin/analytics/user-summary/export/pdf?${params.toString()}`;
 };
 
+const bulkSelectedUsers = ref<number[]>([]);
+const bulkStartDate = ref('');
+const bulkEndDate = ref('');
+
+const selectAllBulkUsers = () => {
+    if (allUsers.value.length > 0) {
+        bulkSelectedUsers.value = allUsers.value.map((u) => u.id);
+    }
+};
+
+const exportBulkCsv = () => {
+    if (bulkSelectedUsers.value.length === 0) {
+        alert('Please select at least one user.');
+        return;
+    }
+    const params = new URLSearchParams({
+        start_date: bulkStartDate.value,
+        end_date: bulkEndDate.value,
+        user_ids: bulkSelectedUsers.value.join(','),
+    });
+    window.location.href = `/api/admin/analytics/export/bulk?${params.toString()}`;
+};
+
 onMounted(() => {
     const today = new Date();
     summaryDate.value = today.toISOString().split('T')[0];
+    bulkStartDate.value = summaryDate.value;
+    bulkEndDate.value = summaryDate.value;
     loadUsers();
     loadActivityLogs();
     fetchSummary();
@@ -1014,6 +1039,67 @@ watch(selectedActionFilter, () => {
                                     class="flex-1 rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-red-500 disabled:bg-gray-400 disabled:cursor-not-allowed"
                                 >
                                     Export PDF
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-white shadow rounded-lg p-4">
+                        <h3 class="text-sm font-semibold text-gray-900 mb-3 uppercase tracking-wide">Bulk Report Export</h3>
+                        <div class="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+                            <div class="md:col-span-2">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">
+                                    Users <span class="text-xs font-normal text-gray-500">(Hold Ctrl/Cmd to select multiple)</span>
+                                </label>
+                                <div class="flex flex-col gap-1">
+                                    <select
+                                        v-model="bulkSelectedUsers"
+                                        multiple
+                                        class="w-full rounded-md border-gray-300 shadow-sm text-sm h-32"
+                                    >
+                                        <option v-for="user in allUsers" :key="user.id" :value="user.id">
+                                            {{ user.name }}
+                                        </option>
+                                    </select>
+                                    <div class="flex justify-end gap-3 text-xs">
+                                        <button 
+                                            @click="selectAllBulkUsers" 
+                                            class="text-indigo-600 hover:text-indigo-800 font-medium"
+                                        >
+                                            Select All
+                                        </button>
+                                        <button 
+                                            @click="bulkSelectedUsers = []" 
+                                            class="text-gray-500 hover:text-gray-700"
+                                        >
+                                            Clear
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
+                                <input
+                                    v-model="bulkStartDate"
+                                    type="date"
+                                    class="w-full rounded-md border-gray-300 shadow-sm text-sm"
+                                />
+                            </div>
+                            <div class="flex flex-col gap-2">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">End Date</label>
+                                    <input
+                                        v-model="bulkEndDate"
+                                        type="date"
+                                        class="w-full rounded-md border-gray-300 shadow-sm text-sm"
+                                    />
+                                </div>
+                                <button
+                                    @click="exportBulkCsv"
+                                    :disabled="bulkSelectedUsers.length === 0"
+                                    class="mt-auto w-full inline-flex justify-center items-center rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-500 disabled:bg-gray-300 disabled:cursor-not-allowed transition"
+                                >
+                                    Download Report
                                 </button>
                             </div>
                         </div>

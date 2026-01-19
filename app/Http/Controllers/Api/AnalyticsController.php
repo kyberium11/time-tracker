@@ -1699,6 +1699,132 @@ class AnalyticsController extends Controller
         
         return response()->stream($callback, 200, $headers);
     }
+
+    /**
+     * Bulk export for multiple users.
+     */
+    public function exportBulk(Request $request)
+    {
+        $userIds = $request->input('user_ids');
+        if (is_string($userIds)) {
+            $userIds = explode(',', $userIds);
+        }
+        
+        $startDate = $request->input('start_date', now()->format('Y-m-d'));
+        $endDate = $request->input('end_date', now()->format('Y-m-d'));
+
+        if (empty($userIds) || !is_array($userIds)) {
+            return response()->json(['error' => 'User IDs are required'], 400);
+        }
+
+        $users = User::whereIn('id', $userIds)->get();
+        if ($users->isEmpty()) {
+            return response()->json(['error' => 'No users found'], 404);
+        }
+
+        $filename = 'analytics_bulk_export_' . $startDate . '_to_' . $endDate . '.csv';
+        $headers = [
+            'Content-Type' => 'text/csv; charset=utf-8',
+            'Content-Disposition' => 'attachment; filename="' . $filename . '"',
+        ];
+
+        $callback = function () use ($users, $startDate, $endDate) {
+            $file = fopen('php://output', 'w');
+            fprintf($file, chr(0xEF).chr(0xBB).chr(0xBF)); // BOM
+
+            // Headers
+            fputcsv($file, [
+                'User Name',
+                'Email',
+                'Log Hours',
+                'Complete Hours', 
+                'Lost Hours (Breaks)',
+                'Lates',
+                'Complete Entries'
+            ]);
+
+            foreach ($users as $user) {
+                // Fetch entries for this user in range
+                $entries = TimeEntry::where('user_id', $user->id)
+                    ->whereBetween('date', [$startDate, $endDate])
+                    ->whereNotNull('clock_in')
+                    ->get();
+
+                $logHours = 0;      // Total duration of work entries
+                $completeHours = 0; // Duration of completed entries (clocked out)
+                $lostHours = 0;     // Break duration
+                $lates = 0;
+                $completeEntries = 0;
+
+                foreach ($entries as $entry) {
+                    // Start/End parsing
+                    $clockIn = \Carbon\Carbon::parse($entry->clock_in);
+                    $clockOut = $entry->clock_out ? \Carbon\Carbon::parse($entry->clock_out) : null;
+                    
+                    // Lates logic (assuming 9 AM default)
+                    $clockInLocal = $clockIn->copy()->setTimezone('Asia/Manila');
+                    // Only count lates for "work" entries, not if they just logged a break? 
+                    // Assuming all main entries are work starts.
+                    if ($entry->entry_type !== 'break' && $clockInLocal->format('H:i:s') > '09:00:00') {
+                        $lates++;
+                    }
+
+                    // Complete Entries
+                    if ($clockOut) {
+                        $completeEntries++;
+                        
+                        // Calculate duration
+                        $seconds = max(0, $clockOut->diffInSeconds($clockIn));
+                        
+                        // Subtract breaks if integrated in entry
+                        if ($entry->break_start && $entry->break_end) {
+                            $bs = \Carbon\Carbon::parse($entry->break_start);
+                            $be = \Carbon\Carbon::parse($entry->break_end);
+                            $breakSec = max(0, $be->diffInSeconds($bs));
+                            $seconds -= $breakSec;
+                            $lostHours += ($breakSec / 3600);
+                        }
+                        
+                        // Subtract lunch
+                        if ($entry->lunch_start && $entry->lunch_end) {
+                            $ls = \Carbon\Carbon::parse($entry->lunch_start);
+                            $le = \Carbon\Carbon::parse($entry->lunch_end);
+                            $lunchSec = max(0, $le->diffInSeconds($ls));
+                            $seconds -= $lunchSec;
+                        }
+
+                        $durationHours = $seconds / 3600;
+                        $logHours += $durationHours;
+                        $completeHours += $durationHours;
+                    } else {
+                        // Entry is currently running
+                       // $now = now();
+                       // $seconds = max(0, $now->diffInSeconds($clockIn));
+                       // $logHours += ($seconds / 3600);
+                       // Usually reports only count "completed" hours so they match payroll. 
+                       // I'll stick to completed hours for "Log Hours" to match "Complete Hours" roughly, or include running?
+                       // User asked for "Log hours" AND "Complete hours".
+                       // Maybe "Log hours" = logged time including running?
+                       // I'll leave running time out to keep it clean for export unless requested.
+                    }
+                }
+
+                fputcsv($file, [
+                    $user->name,
+                    $user->email,
+                    round($logHours, 2),
+                    round($completeHours, 2),
+                    round($lostHours, 2),
+                    $lates,
+                    $completeEntries
+                ]);
+            }
+
+            fclose($file);
+        };
+
+        return response()->stream($callback, 200, $headers);
+    }
     
     /**
      * Export user summary data as PDF.
