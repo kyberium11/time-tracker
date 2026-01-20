@@ -82,7 +82,7 @@ const formatMinutes = (minutes: number | null) => {
     if (minutes === null) return '--';
     const hrs = Math.floor(minutes / 60);
     const mins = minutes % 60;
-    if (hrs === 0) return `${mins}m`;
+    if (hrs === 0) return `${Math.floor(mins)}m`;
     return `${hrs}h ${mins}m`;
 };
 const formatClockIn = (iso: string | null) => {
