@@ -2597,25 +2597,22 @@ class AnalyticsController extends Controller
         $finalUserIds = [];
         
         if ($scopedUserIds !== null) {
-            // Limited scope
             if (empty($scopedUserIds)) {
                 return collect([]);
             }
             if (!empty($requestedUserIds)) {
-                // Intersect
                 $finalUserIds = array_intersect($scopedUserIds, $requestedUserIds);
                 if (empty($finalUserIds)) return collect([]);
             } else {
                 $finalUserIds = $scopedUserIds;
             }
         } else {
-            // Unlimited scope (Admin/Dev)
             if (!empty($requestedUserIds)) {
                 $finalUserIds = $requestedUserIds;
             }
         }
 
-        $startDate = \Carbon\Carbon::parse($request->input('start_date', now()->startOfMonth()));
+        $startDate = \Carbon\Carbon::parse($request->input('start_date', now()->startOfMonth()))->startOfDay();
         $endDate = \Carbon\Carbon::parse($request->input('end_date', now()->endOfMonth()))->endOfDay();
 
         $query = User::query()->where('id', '!=', 1);
@@ -2623,49 +2620,99 @@ class AnalyticsController extends Controller
             $query->whereIn('id', $finalUserIds);
         }
 
-        $users = $query->with(['timeEntries' => function ($q) use ($startDate, $endDate) {
+        // Preload shiftSchedules to avoid N+1 in loop
+        $users = $query->with(['shiftSchedules', 'timeEntries' => function ($q) use ($startDate, $endDate) {
             $q->whereBetween('date', [$startDate->format('Y-m-d'), $endDate->format('Y-m-d')]);
         }])->get();
 
-        return $users->map(function ($user) {
+        $period = \Carbon\CarbonPeriod::create($startDate, $endDate);
+
+        return $users->map(function ($user) use ($period) {
             $logSeconds = 0;
             $completeSeconds = 0;
+            $lostSeconds = 0;
             $lates = 0;
             $completeEntries = 0;
 
-            foreach ($user->timeEntries as $entry) {
-                if (!$entry->clock_in) continue;
+            // Group entries by date (Y-m-d)
+            $entriesByDate = $user->timeEntries->groupBy(function($entry) {
+                 return substr($entry->date, 0, 10);
+            });
 
-                if ($entry->clock_out) {
-                    $completeEntries++;
-                    
-                    $start = \Carbon\Carbon::parse($entry->clock_in);
-                    $end = \Carbon\Carbon::parse($entry->clock_out);
-                    
-                    // Log Time: ClockOut - ClockIn
-                    $diff = $end->diffInSeconds($start);
-                    $logSeconds += $diff;
+            foreach ($period as $date) {
+                $dateStr = $date->format('Y-m-d');
+                $dayEntries = $entriesByDate->get($dateStr, collect([]));
+                
+                // Get Shift Window
+                $shiftWindow = $this->resolveShiftWindow($user, $dateStr);
+                $expectedSeconds = 0;
+                $shiftStart = null;
+                
+                if ($shiftWindow) {
+                    $s = \Carbon\Carbon::parse($shiftWindow['start']);
+                    $e = \Carbon\Carbon::parse($shiftWindow['end']);
+                    $expectedSeconds = $e->diffInSeconds($s);
+                    $shiftStart = $s;
+                }
 
-                    // Complete Time: total_hours field from DB
-                    $completeSeconds += ($entry->total_hours * 3600);
+                $dayCompleteSeconds = 0;
+                $firstClockIn = null;
+                $hasEntries = false;
+
+                foreach ($dayEntries as $entry) {
+                    // Sanity check: ignore entries without clock_in
+                    if (!$entry->clock_in) continue;
+                    $hasEntries = true;
                     
-                     // Lates
-                    if ($start->format('H:i') > '09:00') {
-                        $lates++;
+                    $cIn = \Carbon\Carbon::parse($entry->clock_in);
+                    
+                    // Track first clock in for Lates check
+                    if (!$firstClockIn || $cIn->lt($firstClockIn)) {
+                        $firstClockIn = $cIn;
+                    }
+
+                    if ($entry->clock_out) {
+                        $completeEntries++;
+                        $cOut = \Carbon\Carbon::parse($entry->clock_out);
+                        
+                        // Log Time: Absolute difference
+                        $logSeconds += $cOut->diffInSeconds($cIn);
+                        
+                        // Complete Time: total_hours from DB (sanitize negative)
+                        $hours = max(0, (float)$entry->total_hours);
+                        $dayCompleteSeconds += ($hours * 3600);
                     }
                 }
-            }
+                
+                $completeSeconds += $dayCompleteSeconds;
 
-            $logHours = round($logSeconds / 3600, 2);
-            $completeHours = round($completeSeconds / 3600, 2);
-            $lostHours = max(0, $logHours - $completeHours);
+                // Check Lates (Only if they actually clocked in)
+                if ($shiftStart && $firstClockIn) {
+                     // Add 1 minute grace period to avoid second-level mismatches
+                     if ($firstClockIn->gt($shiftStart->copy()->addMinute())) {
+                         $lates++;
+                     }
+                }
+
+                // Compute Lost Hours for this day
+                // Lost = Expected Shift Duration - Actual Worked
+                // Only if shift exists. 
+                // If they were absent ($firstClockIn is null), Lost = Expected.
+                if ($expectedSeconds > 0) {
+                     // If it's a future date, don't count lost hours yet? 
+                     // Usually reports include selected range. If selected includes today/future, might show lost.
+                     // We'll stick to range provided.
+                     $lost = max(0, $expectedSeconds - $dayCompleteSeconds);
+                     $lostSeconds += $lost;
+                }
+            }
 
             return [
                 'user_id' => $user->id,
                 'name' => $user->name,
-                'log_hours' => $logHours,
-                'complete_hours' => $completeHours,
-                'lost_hours' => round($lostHours, 2),
+                'log_hours' => round($logSeconds / 3600, 2),
+                'complete_hours' => round($completeSeconds / 3600, 2),
+                'lost_hours' => round($lostSeconds / 3600, 2),
                 'lates' => $lates,
                 'complete_entries' => $completeEntries,
             ];
