@@ -2544,4 +2544,131 @@ class AnalyticsController extends Controller
             ], 500);
         }
     }
+    public function reports(Request $request)
+    {
+        $data = $this->getReportData($request);
+        return response()->json(['data' => $data]);
+    }
+
+    public function exportReports(Request $request)
+    {
+        $data = $this->getReportData($request);
+        $timestamp = now()->format('Y_m_d_His');
+        $filename = "analytics_report_{$timestamp}.csv";
+
+        $headers = [
+            "Content-type"        => "text/csv",
+            "Content-Disposition" => "attachment; filename=$filename",
+            "Pragma"              => "no-cache",
+            "Cache-Control"       => "must-revalidate",
+            "Expires"             => "0"
+        ];
+
+        $callback = function() use ($data) {
+            $file = fopen('php://output', 'w');
+            fputcsv($file, ['User', 'Log Hours', 'Complete Hours', 'Lost Hours', 'Lates', 'Complete Entries']);
+
+            foreach ($data as $row) {
+                fputcsv($file, [
+                    $row['name'],
+                    $row['log_hours'],
+                    $row['complete_hours'],
+                    $row['lost_hours'],
+                    $row['lates'],
+                    $row['complete_entries']
+                ]);
+            }
+            fclose($file);
+        };
+
+        return response()->stream($callback, 200, $headers);
+    }
+
+    private function getReportData(Request $request)
+    {
+        $authUser = Auth::user();
+        $scopedUserIds = $this->resolveScopedUserIds($authUser);
+        
+        $requestedUserIds = $request->input('user_ids');
+        if (is_string($requestedUserIds)) {
+             $requestedUserIds = explode(',', $requestedUserIds);
+        }
+
+        $finalUserIds = [];
+        
+        if ($scopedUserIds !== null) {
+            // Limited scope
+            if (empty($scopedUserIds)) {
+                return collect([]);
+            }
+            if (!empty($requestedUserIds)) {
+                // Intersect
+                $finalUserIds = array_intersect($scopedUserIds, $requestedUserIds);
+                if (empty($finalUserIds)) return collect([]);
+            } else {
+                $finalUserIds = $scopedUserIds;
+            }
+        } else {
+            // Unlimited scope (Admin/Dev)
+            if (!empty($requestedUserIds)) {
+                $finalUserIds = $requestedUserIds;
+            }
+        }
+
+        $startDate = \Carbon\Carbon::parse($request->input('start_date', now()->startOfMonth()));
+        $endDate = \Carbon\Carbon::parse($request->input('end_date', now()->endOfMonth()))->endOfDay();
+
+        $query = User::query()->where('id', '!=', 1);
+        if (!empty($finalUserIds)) {
+            $query->whereIn('id', $finalUserIds);
+        }
+
+        $users = $query->with(['timeEntries' => function ($q) use ($startDate, $endDate) {
+            $q->whereBetween('date', [$startDate->format('Y-m-d'), $endDate->format('Y-m-d')]);
+        }])->get();
+
+        return $users->map(function ($user) {
+            $logSeconds = 0;
+            $completeSeconds = 0;
+            $lates = 0;
+            $completeEntries = 0;
+
+            foreach ($user->timeEntries as $entry) {
+                if (!$entry->clock_in) continue;
+
+                if ($entry->clock_out) {
+                    $completeEntries++;
+                    
+                    $start = \Carbon\Carbon::parse($entry->clock_in);
+                    $end = \Carbon\Carbon::parse($entry->clock_out);
+                    
+                    // Log Time: ClockOut - ClockIn
+                    $diff = $end->diffInSeconds($start);
+                    $logSeconds += $diff;
+
+                    // Complete Time: total_hours field from DB
+                    $completeSeconds += ($entry->total_hours * 3600);
+                    
+                     // Lates
+                    if ($start->format('H:i') > '09:00') {
+                        $lates++;
+                    }
+                }
+            }
+
+            $logHours = round($logSeconds / 3600, 2);
+            $completeHours = round($completeSeconds / 3600, 2);
+            $lostHours = max(0, $logHours - $completeHours);
+
+            return [
+                'user_id' => $user->id,
+                'name' => $user->name,
+                'log_hours' => $logHours,
+                'complete_hours' => $completeHours,
+                'lost_hours' => round($lostHours, 2),
+                'lates' => $lates,
+                'complete_entries' => $completeEntries,
+            ];
+        });
+    }
 }

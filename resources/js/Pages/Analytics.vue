@@ -193,7 +193,7 @@ interface ActivityLog {
     user?: { id: number; name: string; email: string };
 }
 
-const activeTab = ref<'overview' | 'summary' | 'activity' | 'user-hours'>('overview');
+const activeTab = ref<'overview' | 'summary' | 'activity' | 'user-hours' | 'reports'>('overview');
 const selectedUser = ref<number | null>(null);
 const summaryDate = ref('');
 const allUsers = ref<Array<{ id: number; name: string }>>([]);
@@ -779,6 +779,68 @@ const exportBulkCsv = () => {
     window.location.href = `/api/admin/analytics/export/bulk?${params.toString()}`;
 };
 
+// ------------------------------------------------------------
+// Reports Tab
+// ------------------------------------------------------------
+
+const reportsStartDate = ref('');
+const reportsEndDate = ref('');
+const reportsSelectedUsers = ref<number[]>([]);
+const reportsData = ref<Array<{
+    user_id: number;
+    name: string;
+    log_hours: number;
+    complete_hours: number;
+    lost_hours: number;
+    lates: number;
+    complete_entries: number;
+}>>([]);
+const reportsLoading = ref(false);
+
+const initReportDates = () => {
+    const today = new Date();
+    const start = new Date(today.getFullYear(), today.getMonth(), 1);
+    reportsStartDate.value = start.toISOString().split('T')[0];
+    reportsEndDate.value = today.toISOString().split('T')[0];
+};
+
+const loadReports = async () => {
+    reportsLoading.value = true;
+    try {
+        const params = new URLSearchParams();
+        if (reportsStartDate.value) params.append('start_date', reportsStartDate.value);
+        if (reportsEndDate.value) params.append('end_date', reportsEndDate.value);
+        if (reportsSelectedUsers.value.length) params.append('user_ids', reportsSelectedUsers.value.join(','));
+
+        const response = await api.get('/admin/analytics/reports', { params });
+        reportsData.value = response.data.data;
+    } catch (e) {
+        console.error('Error loading reports', e);
+        // alert('Failed to load reports');
+    } finally {
+        reportsLoading.value = false;
+    }
+};
+
+const downloadReportsCsv = () => {
+    const params = new URLSearchParams();
+    if (reportsStartDate.value) params.append('start_date', reportsStartDate.value);
+    if (reportsEndDate.value) params.append('end_date', reportsEndDate.value);
+    if (reportsSelectedUsers.value.length) params.append('user_ids', reportsSelectedUsers.value.join(','));
+    
+    window.location.href = `/api/admin/analytics/reports/export?${params.toString()}`;
+};
+
+const selectAllReportUsers = () => {
+    if (allUsers.value.length > 0) {
+        reportsSelectedUsers.value = allUsers.value.map((u) => u.id);
+    }
+};
+
+const clearReportUsers = () => {
+    reportsSelectedUsers.value = [];
+};
+
 onMounted(() => {
     const today = new Date();
     summaryDate.value = today.toISOString().split('T')[0];
@@ -808,6 +870,11 @@ watch(activeTab, (newTab) => {
             initUserHoursDates();
         }
         loadUserHours();
+    } else if (newTab === 'reports') {
+        if (!reportsStartDate.value) {
+            initReportDates();
+        }
+        loadReports();
     }
 });
 
@@ -887,6 +954,17 @@ watch(selectedActionFilter, () => {
                             ]"
                         >
                             Activity Log
+                        </button>
+                        <button
+                            @click="activeTab = 'reports'"
+                            :class="[
+                                'whitespace-nowrap border-b-2 py-4 px-1 text-sm font-medium',
+                                activeTab === 'reports'
+                                    ? 'border-indigo-500 text-indigo-600'
+                                    : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-700'
+                            ]"
+                        >
+                            Reports
                         </button>
                     </nav>
                 </div>
@@ -1411,6 +1489,121 @@ watch(selectedActionFilter, () => {
                                     </tr>
                                 </tfoot>
                             </table>
+                        </div>
+                    </div>
+                </div>
+
+
+                <!-- Reports Tab -->
+                <div v-else-if="activeTab === 'reports'" class="space-y-6">
+                    <div class="bg-white shadow rounded-lg p-4">
+                        <div class="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+                            <div class="md:col-span-2">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">
+                                    Users <span class="text-xs font-normal text-gray-500">(Hold Ctrl/Cmd to select multiple)</span>
+                                </label>
+                                <div class="flex flex-col gap-1">
+                                    <select
+                                        v-model="reportsSelectedUsers"
+                                        multiple
+                                        class="w-full rounded-md border-gray-300 shadow-sm text-sm h-32"
+                                    >
+                                        <option v-for="user in allUsers" :key="user.id" :value="user.id">
+                                            {{ user.name }}
+                                        </option>
+                                    </select>
+                                    <div class="flex justify-end gap-3 text-xs">
+                                        <button 
+                                            @click="selectAllReportUsers" 
+                                            class="text-indigo-600 hover:text-indigo-800 font-medium"
+                                        >
+                                            Select All
+                                        </button>
+                                        <button 
+                                            @click="clearReportUsers" 
+                                            class="text-gray-500 hover:text-gray-700"
+                                        >
+                                            Clear
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Start Date</label>
+                                <input
+                                    v-model="reportsStartDate"
+                                    type="date"
+                                    class="w-full rounded-md border-gray-300 shadow-sm text-sm"
+                                />
+                            </div>
+                            <div class="flex flex-col gap-2">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">End Date</label>
+                                    <input
+                                        v-model="reportsEndDate"
+                                        type="date"
+                                        class="w-full rounded-md border-gray-300 shadow-sm text-sm"
+                                    />
+                                </div>
+                                <div class="mt-auto flex gap-2">
+                                     <button
+                                        @click="loadReports"
+                                        :disabled="reportsLoading"
+                                        class="flex-1 inline-flex justify-center items-center rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-500 disabled:bg-gray-300 disabled:cursor-not-allowed transition"
+                                    >
+                                        <span v-if="reportsLoading">loading...</span>
+                                        <span v-else>Apply</span>
+                                    </button>
+                                    <button
+                                        @click="downloadReportsCsv"
+                                        :disabled="reportsLoading || reportsData.length === 0"
+                                        class="flex-1 inline-flex justify-center items-center rounded-md bg-green-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-green-500 disabled:bg-gray-300 disabled:cursor-not-allowed transition"
+                                    >
+                                        Export CSV
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="bg-white shadow rounded-lg">
+                        <div class="overflow-x-auto">
+                            <table class="min-w-full divide-y divide-gray-200">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-gray-500">User</th>
+                                        <th class="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Log Hours</th>
+                                        <th class="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Complete Hours</th>
+                                        <th class="px-4 py-3 text-right text-xs font-medium uppercase tracking-wider text-gray-500">Lost Hours</th>
+                                        <th class="px-4 py-3 text-center text-xs font-medium uppercase tracking-wider text-gray-500">Lates</th>
+                                        <th class="px-4 py-3 text-center text-xs font-medium uppercase tracking-wider text-gray-500">Complete Entries</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-gray-200 bg-white">
+                                    <tr v-for="row in reportsData" :key="row.user_id">
+                                        <td class="px-4 py-4 text-sm font-medium text-gray-900">{{ row.name }}</td>
+                                        <td class="px-4 py-4 text-sm text-gray-500 text-right">{{ row.log_hours }} h</td>
+                                        <td class="px-4 py-4 text-sm text-gray-500 text-right">{{ row.complete_hours }} h</td>
+                                        <td 
+                                            class="px-4 py-4 text-sm text-right"
+                                            :class="row.lost_hours > 0 ? 'text-red-600 font-medium' : 'text-gray-500'"
+                                        >
+                                            {{ row.lost_hours }} h
+                                        </td>
+                                        <td class="px-4 py-4 text-sm text-gray-500 text-center">{{ row.lates }}</td>
+                                        <td class="px-4 py-4 text-sm text-gray-500 text-center">{{ row.complete_entries }}</td>
+                                    </tr>
+                                    <tr v-if="reportsData.length === 0 && !reportsLoading">
+                                        <td colspan="6" class="px-4 py-8 text-center text-sm text-gray-500">
+                                            No data found for the selected range.
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div v-if="reportsLoading" class="text-center py-8">
+                            <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-600"></div>
+                            <p class="mt-2 text-sm text-gray-500">Loading reports...</p>
                         </div>
                     </div>
                 </div>

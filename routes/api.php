@@ -101,6 +101,8 @@ Route::middleware(['auth:sanctum'])->group(function () {
         Route::get('/analytics/user-summary/export/csv', [AnalyticsController::class, 'exportUserSummaryCsv']);
         Route::get('/analytics/user-summary/export/pdf', [AnalyticsController::class, 'exportUserSummaryPdf']);
         Route::get('/analytics/export/bulk', [AnalyticsController::class, 'exportBulk']);
+        Route::get('/analytics/reports', [AnalyticsController::class, 'reports']);
+        Route::get('/analytics/reports/export', [AnalyticsController::class, 'exportReports']);
     });
 
     // Developer-only routes (time entry management)
