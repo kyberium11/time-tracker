@@ -159,8 +159,8 @@ const isCompletedStatus = (status: string | null | undefined): boolean => {
 
 // Extract ClickUp task ID from URL (only from URL format, not plain text)
 const extractClickUpTaskId = (input: string): string | null => {
-    // Only match ClickUp URL format: https://app.clickup.com/t/86c6973r9 or app.clickup.com/t/86c6973r9
-    const urlPattern = /(?:https?:\/\/)?(?:app\.)?clickup\.com\/t\/([a-zA-Z0-9]+)/i;
+    // Match ClickUp URL format: https://app.clickup.com/t/86c6973r9 or https://app.clickup.com/t/team_id/86c6973r9
+    const urlPattern = /(?:https?:\/\/)?(?:app\.)?clickup\.com\/t\/(?:\d+\/)?([a-zA-Z0-9]+)/i;
     const match = input.match(urlPattern);
     if (match) {
         return match[1];

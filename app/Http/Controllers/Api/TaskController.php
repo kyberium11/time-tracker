@@ -119,8 +119,8 @@ class TaskController extends Controller
             return response()->json(['error' => 'ClickUp task ID is required'], 400);
         }
 
-        // Extract task ID from URL if provided (e.g., https://app.clickup.com/t/86c6973r9)
-        if (preg_match('/\/t\/([a-zA-Z0-9]+)/', $clickUpTaskId, $matches)) {
+        // Extract task ID from URL if provided (e.g., https://app.clickup.com/t/86c6973r9 or https://app.clickup.com/t/team_id/86c6973r9)
+        if (preg_match('/\/t\/(?:\d+\/)?([a-zA-Z0-9]+)/', $clickUpTaskId, $matches)) {
             $clickUpTaskId = trim($matches[1]);
         }
 
