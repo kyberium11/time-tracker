@@ -43,10 +43,13 @@ class ClickUpService
         // Prefer using custom_task_ids for short IDs (alpha-numeric) and provide team_id
         $teamId = ClickUpConfig::teamId();
         $query = [];
-        if ($teamId) {
-            $query['team_id'] = $teamId;
+        $useCustomIds = !ctype_digit($taskId);
+        if ($useCustomIds) {
+            $query['custom_task_ids'] = 'true';
+            if ($teamId) {
+                $query['team_id'] = $teamId;
+            }
         }
-        $query['custom_task_ids'] = 'true';
 
         try {
             $response = Http::withHeaders($headers)
@@ -244,8 +247,14 @@ class ClickUpService
         ];
         $base = 'https://api.clickup.com/api/v2/task/' . $taskId;
         $teamId = ClickUpConfig::teamId();
-        $query = [ 'custom_task_ids' => 'true' ];
-        if ($teamId) { $query['team_id'] = $teamId; }
+        $useCustomIds = !ctype_digit($taskId);
+        $query = [];
+        if ($useCustomIds) {
+            $query['custom_task_ids'] = 'true';
+            if ($teamId) {
+                $query['team_id'] = $teamId;
+            }
+        }
 
         try {
             $response = Http::withHeaders($headers)
@@ -341,8 +350,10 @@ class ClickUpService
         $teamId = ClickUpConfig::teamId();
         $useCustomIds = !ctype_digit($taskId);
         $query = [];
-        if ($useCustomIds) { $query['custom_task_ids'] = 'true'; }
-        if ($teamId) { $query['team_id'] = $teamId; }
+        if ($useCustomIds) { 
+            $query['custom_task_ids'] = 'true'; 
+            if ($teamId) { $query['team_id'] = $teamId; }
+        }
 
         try {
             $payload = [ 'comment_text' => $text ];
@@ -833,9 +844,9 @@ class ClickUpService
         $query = [];
         if ($useCustomIds) {
             $query['custom_task_ids'] = 'true';
-        }
-        if ($teamId) {
-            $query['team_id'] = $teamId;
+            if ($teamId) {
+                $query['team_id'] = $teamId;
+            }
         }
 
         try {
