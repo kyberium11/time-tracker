@@ -114,14 +114,14 @@ class TaskController extends Controller
             return response()->json(['error' => 'Unauthorized'], 401);
         }
 
-        $clickUpTaskId = $request->input('clickup_task_id');
+        $clickUpTaskId = trim($request->input('clickup_task_id'));
         if (!$clickUpTaskId) {
             return response()->json(['error' => 'ClickUp task ID is required'], 400);
         }
 
         // Extract task ID from URL if provided (e.g., https://app.clickup.com/t/86c6973r9)
         if (preg_match('/\/t\/([a-zA-Z0-9]+)/', $clickUpTaskId, $matches)) {
-            $clickUpTaskId = $matches[1];
+            $clickUpTaskId = trim($matches[1]);
         }
 
         // Fetch task from ClickUp
